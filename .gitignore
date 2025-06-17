@@ -1,0 +1,25 @@
+# Byte‐compiled / caches
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+.env
+env/
+venv/
+
+# Pytest cache
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE/editor cruft (optional)
+.vscode/
+.idea/
+
+# Local Testing
+indepthtests/

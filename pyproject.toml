@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easy_acumatica"
+version = "0.1.0"
+description = "Python wrapper for the Acumatica REST API"
+readme = "README.md"
+authors = [{ name="Matthew Hirstius", email="matthew.c.hirstius@gmail.com" }]
+requires-python = ">=3.7"
+dependencies = [
+  "requests>=2.25.1"
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Nioron07/Easy-Acumatica"
+"Source"   = "https://github.com/Nioron07/Easy-Acumatica"
