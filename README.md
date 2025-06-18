@@ -88,8 +88,13 @@ params = opts.to_params()
 | Chain with `.and_(…)` / `.or_(…)` for complex logic |
 
 ---
+## 3 Sub-Services
+Each Acumatica resource lives under a *service* object created by the
+client.
 
-## 3  Contacts sub-service
+
+
+## 3.1  Contacts sub-service
 
 Each Acumatica resource lives under a *service* object created by the
 client.  **ContactsService** is the first example; additional services
@@ -124,44 +129,16 @@ page2 = client.contacts.get_contacts(
 
 ---
 
-## 4  Extending with new services
-
-```python
-# services/invoices.py
-class InvoicesService:
-    def __init__(self, client: "AcumaticaClient"):
-        self._client = client
-
-    def get_invoices(self, api_version: str, options=None):
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
-        resp = self._client.session.get(url, params=options and options.to_params())
-        resp.raise_for_status()
-        return resp.json()
-
-# client.py
-from .services.invoices import InvoicesService
-self.invoices = InvoicesService(self)
-```
-
-Follow the same structure:
-
-1. Accept the shared `AcumaticaClient`.
-2. Build endpoint URLs with `client.base_url`.
-3. Use `client.session` for HTTP requests.
-4. Support `QueryOptions` so callers keep a uniform API.
-
----
-
-## 5  Installation
+## 4  Installation
 
 ```bash
-pip install easy-acumatica
+pip install easy_acumatica
 ```
 
 Supports Python 3.8+ and ships zero third‑party deps beyond `requests`.
 
 ---
 
-## 6  License
+## 5  License
 
 MIT
