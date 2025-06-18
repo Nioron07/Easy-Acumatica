@@ -1,12 +1,11 @@
 """tests/test_contacts.py
 Comprehensive tests for ContactsService using requests_mock.
 """
-import json
 import pytest
 from requests import HTTPError
 
 from easy_acumatica import AcumaticaClient
-from easy_acumatica.filters import Filter
+from easy_acumatica.models.filters import Filter
 from easy_acumatica.models.contact_builder import ContactBuilder
 
 API_VERSION = "24.200.001"

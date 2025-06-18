@@ -2,7 +2,6 @@
 """
 Unit tests for easy_acumatica.models.contact_builder
 """
-import pytest
 
 from easy_acumatica.models.contact_builder import Attribute, ContactBuilder
 

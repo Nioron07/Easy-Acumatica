@@ -2,7 +2,6 @@
 """
 Unit tests for easy_acumatica.models.filters (Filter & QueryOptions).
 """
-import pytest
 
 from easy_acumatica.models.filters import Filter, QueryOptions
 
