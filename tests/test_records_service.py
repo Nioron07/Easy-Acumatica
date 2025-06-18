@@ -4,7 +4,7 @@ from requests import HTTPError
 from urllib.parse import unquote_plus
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.models.record_builder import RecordBuilder
-from easy_acumatica.models.filters import QueryOptions, Filter
+from easy_acumatica.models.filter_builder import QueryOptions, Filter
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"

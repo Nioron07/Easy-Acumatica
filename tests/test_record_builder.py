@@ -1,5 +1,4 @@
 # tests/test_record_builder.py
-import pytest
 
 from easy_acumatica.models.record_builder import RecordBuilder
 
