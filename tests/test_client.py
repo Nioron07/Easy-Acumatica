@@ -1,36 +1,60 @@
+# tests/test_client.py
 import pytest
 from requests import HTTPError
+
 from easy_acumatica import AcumaticaClient
 
-@pytest.fixture
-def client():
-    return AcumaticaClient(
-        base_url="https://fake",
-        username="u",
-        password="p",
-        tenant="t",
-        branch="b",
-        verify_ssl=False,
-    )
+BASE = "https://fake"
+LOGIN_URL = f"{BASE}/entity/auth/login"
+LOGOUT_URL = f"{BASE}/entity/auth/logout"
 
-def test_login_success(requests_mock, client):
-    # stub the exact URL used in client.login()
-    requests_mock.post("https://fake/entity/auth/login", status_code=204)
+
+# -------------------------------------------------------------------------
+# login
+# -------------------------------------------------------------------------
+def test_login_success(requests_mock):
+    requests_mock.post(LOGIN_URL, status_code=204)          # auto-login
+    requests_mock.post(LOGOUT_URL, status_code=204)
+
+    client = AcumaticaClient(BASE, "u", "p", "t", "b", verify_ssl=False)
     assert client.login() == 204
 
-def test_login_failure(requests_mock, client):
-    requests_mock.post("https://fake/entity/auth/login", status_code=401)
+
+# tests/test_client.py
+def test_login_failure(requests_mock):
+    # first login succeeds so client can be built
+    requests_mock.post(LOGIN_URL, status_code=204)
+    requests_mock.post(LOGOUT_URL, status_code=204)
+
+    client = AcumaticaClient(BASE, "u", "p", "t", "b", verify_ssl=False)
+
+    # make the client "unauthenticated" again
+    client.logout()
+
+    # next POST /login should fail
+    requests_mock.post(LOGIN_URL, status_code=401)
+
     with pytest.raises(HTTPError):
         client.login()
 
-def test_logout_success(requests_mock, client):
-    # pre-populate a cookie so we can verify it gets cleared
-    client.session.cookies.set("foo", "bar")
-    requests_mock.post("https://fake/entity/auth/logout", status_code=204)
-    assert client.logout() == 204
-    assert not client.session.cookies  # cookies cleared
 
-def test_logout_failure(requests_mock, client):
-    requests_mock.post("https://fake/entity/auth/logout", status_code=500)
+# -------------------------------------------------------------------------
+# logout
+# -------------------------------------------------------------------------
+def test_logout_success(requests_mock):
+    requests_mock.post(LOGIN_URL, status_code=204)
+    requests_mock.post(LOGOUT_URL, status_code=204)
+
+    client = AcumaticaClient(BASE, "u", "p", "t", "b", verify_ssl=False)
+    client.session.cookies.set("foo", "bar")                # artificial cookie
+    assert client.logout() == 204
+    assert not client.session.cookies
+
+
+def test_logout_failure(requests_mock):
+    requests_mock.post(LOGIN_URL, status_code=204)
+    requests_mock.post(LOGOUT_URL, status_code=500)
+
+    client = AcumaticaClient(BASE, "u", "p", "t", "b", verify_ssl=False)
     with pytest.raises(HTTPError):
         client.logout()
