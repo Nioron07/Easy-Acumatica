@@ -33,41 +33,17 @@ Typical usage
 """
 from __future__ import annotations
 
-import requests
 from typing import TYPE_CHECKING, Any, Optional, Union
 
-from ..models.filters import QueryOptions, Filter
+from ..models.filter_builder import QueryOptions, Filter
 from ..models.contact_builder import ContactBuilder  # payload builder
-
+from ..helpers import _raise_with_detail
 if TYPE_CHECKING:  # pragma: no cover – import‑time hint only
     from ..client import AcumaticaClient
 
 __all__ = ["ContactsService"]
 
 
-auth_error_msg = (
-    "Acumatica API error {code}: {detail}"
-)  # module‑level template keeps the f‑string in one place
-
-
-def _raise_with_detail(resp: requests.Response) -> None:
-    """Shared helper to raise a *RuntimeError* with parsed details."""
-    try:
-        resp.raise_for_status()
-    except requests.HTTPError as exc:
-        try:
-            err_json = resp.json()
-            detail = (
-                err_json.get("exceptionMessage")
-                or err_json.get("message")
-                or err_json
-            )
-        except ValueError:
-            detail = resp.text or resp.status_code
-
-        msg = auth_error_msg.format(code=resp.status_code, detail=detail)
-        print(msg)
-        raise RuntimeError(msg) from exc
 
 
 class ContactsService:  # pylint: disable=too-few-public-methods
@@ -235,3 +211,52 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         resp = self._client.session.delete(url, verify=self._client.verify_ssl)
         _raise_with_detail(resp)
         return None
+    
+    # ------------------------------------------------------------------
+    def link_contact_to_customer(
+        self,
+        api_version: str,
+        contact_id: int,
+        business_account: str,
+        payload: Optional[Union[dict, ContactBuilder]] = None,
+    ) -> Any:
+        """
+        Link an existing contact to a customer (business account).
+
+        Parameters
+        ----------
+        api_version : str
+            Endpoint version, e.g. ``"24.200.001"``.
+        contact_id : int | str
+            The contact's **ContactID** key.
+        business_account : str
+            Target customer/business-account code (e.g. ``"ABAKERY"``).
+        payload : dict | ContactBuilder, optional
+            *Additional* fields to change in the same request.  
+            • If a ``dict`` is provided, it must already be in the
+              Acumatica REST JSON format.  
+            • If a :class:`ContactBuilder` is provided, its
+              :pymeth:`ContactBuilder.build` output is used.
+
+        Returns
+        -------
+        Any
+            JSON representation of the updated contact.
+        """
+        # --------------------- Build the request body ------------------
+        if payload is None:
+            body: dict[str, Any] = {}
+        elif isinstance(payload, ContactBuilder):
+            body = payload.build()
+        else:                                     # assume plain dict-like
+            body = dict(payload)                  # shallow copy for safety
+
+        # Ensure the mandatory linkage keys are present (and override any
+        # accidental mismatch in *payload*)
+        body["BusinessAccount"] = {"value": business_account}
+        body["ContactID"] = {"value": contact_id}
+
+        # ---------------- Build the $filter ---------------------------
+        flt = Filter().eq("ContactID", contact_id)
+        # Delegate to the generic updater (inherits uniform error handling)
+        return self.update_contact(api_version, flt, body)

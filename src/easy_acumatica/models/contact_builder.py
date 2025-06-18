@@ -158,6 +158,26 @@ class ContactBuilder:
     def contact_method(self, method: str) -> "ContactBuilder":
         return self._set("ContactMethod", method)
 
+    def country_id(self, country: str) -> "ContactBuilder":
+            """
+            Sets Address.Country (required when *OverrideAccountAddress* = True).
+
+            Examples
+            --------
+            >>> ContactBuilder().country_id("US")
+            """
+            addr = self._data.setdefault("Address", {})
+            addr["Country"] = {"value": country}        # <-- nested!
+            return self
+
+    def override_account_address(self, flag: bool = True) -> "ContactBuilder":
+        """
+        Toggles the *Override Account Address* flag.  If you pass False the
+        contact will inherit the address from its BusinessAccount, so the
+        Address block becomes optional.
+        """
+        return self._set("OverrideAccountAddress", flag)
+
     def business_account(self, account: str) -> "ContactBuilder":
         return self._set("BusinessAccount", account)
 

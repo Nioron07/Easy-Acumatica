@@ -3,7 +3,7 @@
 Unit tests for easy_acumatica.models.filters (Filter & QueryOptions).
 """
 
-from easy_acumatica.models.filters import Filter, QueryOptions
+from easy_acumatica.models.filter_builder import Filter, QueryOptions
 
 
 # ---------------------------------------------------------------------------

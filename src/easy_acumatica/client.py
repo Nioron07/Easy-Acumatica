@@ -31,6 +31,7 @@ from typing import Optional
 import requests
 
 # Sub‑services -------------------------------------------------------------
+from .sub_services.records import RecordsService
 from .sub_services.contacts import ContactsService
 
 __all__ = ["AcumaticaClient"]
@@ -106,6 +107,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
 
         # Service proxies --------------------------------------------------
         self.contacts: ContactsService = ContactsService(self)
+        self.records: RecordsService = RecordsService(self)
 
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers

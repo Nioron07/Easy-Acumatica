@@ -5,7 +5,7 @@ import pytest
 from requests import HTTPError
 
 from easy_acumatica import AcumaticaClient
-from easy_acumatica.models.filters import Filter
+from easy_acumatica.models.filter_builder import Filter
 from easy_acumatica.models.contact_builder import ContactBuilder
 
 API_VERSION = "24.200.001"
@@ -14,7 +14,12 @@ LOGIN_URL = f"{BASE}/entity/auth/login"
 LOGOUT_URL = f"{BASE}/entity/auth/logout"
 CONTACTS_URL = f"{BASE}/entity/Default/{API_VERSION}/Contact"
 
-
+def _last_request_to_contacts(history):
+    """Return the most recent request whose URL starts with CONTACTS_URL."""
+    for req in reversed(history):
+        if req.method == "PUT" and req.url.startswith(CONTACTS_URL):
+            return req
+    raise AssertionError("No PUT /Contact call captured")
 # automatic login/logout stubs --------------------------------------------
 @pytest.fixture
 def client(requests_mock):
@@ -122,3 +127,75 @@ def test_delete_contact_not_found(requests_mock, client):
     requests_mock.delete(f"{CONTACTS_URL}/{note_id}", status_code=404)
     with pytest.raises(RuntimeError):
         client.contacts.delete_contact(API_VERSION, note_id)
+
+
+# -------------------------------------------------------------------------
+# link_contact_to_customer
+# -------------------------------------------------------------------------
+def test_link_contact_success_dict(requests_mock, client):
+    """Happy path with an extra-fields dict payload."""
+    contact_id = 1
+    acct_cd = "ABAKERY"
+    updated = [{
+        "ContactID": {"value": contact_id},
+        "BusinessAccount": {"value": acct_cd},
+        "LastName": {"value": "Doe"},
+    }]
+
+    # any query string is fine – we don’t set match_querystring=True
+    requests_mock.put(CONTACTS_URL, status_code=200, json=updated)
+
+    res = client.contacts.link_contact_to_customer(
+        API_VERSION,
+        contact_id,
+        acct_cd,
+        payload={"LastName": {"value": "Doe"}},
+    )
+
+    # response passthrough
+    assert res == updated
+
+    # the builder must have forced the correct BAccount in the outbound body
+    sent = _last_request_to_contacts(requests_mock.request_history).json()
+    assert sent["BusinessAccount"]["value"] == acct_cd
+    assert sent["ContactID"]["value"] == contact_id
+    assert sent["LastName"]["value"] == "Doe"
+
+
+def test_link_contact_success_builder(requests_mock, client):
+    """Same call but with a ContactBuilder payload."""
+    contact_id = 2
+    acct_cd = "JWHOIST"
+    builder = ContactBuilder().last_name("Hoister")
+    updated = [{
+        "ContactID": {"value": contact_id},
+        "BusinessAccount": {"value": acct_cd},
+        "LastName": {"value": "Hoister"},
+    }]
+
+    requests_mock.put(CONTACTS_URL, status_code=200, json=updated)
+
+    res = client.contacts.link_contact_to_customer(
+        API_VERSION,
+        contact_id,
+        acct_cd,
+        payload=builder,
+    )
+
+    assert res == updated
+    sent = _last_request_to_contacts(requests_mock.request_history).json()
+    assert sent["BusinessAccount"]["value"] == acct_cd
+    assert sent["ContactID"]["value"] == contact_id
+    assert sent["LastName"]["value"] == "Hoister"
+
+
+def test_link_contact_validation_error(requests_mock, client):
+    """Server returns 4xx/5xx -> RuntimeError bubbles up."""
+    requests_mock.put(CONTACTS_URL, status_code=422, json={"message": "bad"})
+    with pytest.raises(RuntimeError):
+        client.contacts.link_contact_to_customer(
+            API_VERSION,
+            99,
+            "BADACCT",
+            payload={"LastName": {"value": "Error"}},
+        )
