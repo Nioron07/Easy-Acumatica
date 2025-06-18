@@ -90,41 +90,80 @@ params = opts.to_params()
 ---
 ## 3 Sub-Services
 Each Acumatica resource lives under a *service* object created by the
-client.
+client. Each of these contains different endpoints related to that sub-service
 
 
 
 ## 3.1  Contacts sub-service
 
-Each Acumatica resource lives under a *service* object created by the
-client.  **ContactsService** is the first example; additional services
-(e.g. `invoices`, `sales_orders`) follow the same pattern.
+The Contacts sub-service provides access to all contacts in your Acumatica account. It also supports filtering and query parameters
+
 
 ### Available endpoint methods
 
-| Method                                 | Description                                  |
-|----------------------------------------|----------------------------------------------|
-| `get_contacts(api_version, options)`   | Returns a list of contacts. `api_version` is the semantic version string (e.g. `"24.200.001"`). |
+| Method | Purpose |
+|--------|---------|
+| `get_contacts(api_version, options=None)` | List/search contacts with OData options (`$filter`, `$select`, `$top`, …). |
+| `create_contact(api_version, draft)` | Insert a new record using a `ContactBuilder` payload. |
+| `deactivate_contact(api_version, filter_, active=False)` | Bulk-toggle the **Active** flag (set to `False` by default; `True` re-activates) for all contacts matched by the filter. |
+| `update_contact(api_version, filter_, payload)` | Patch any writable fields on contacts selected by the filter. `payload` can be a plain dict or a `ContactBuilder`. |
+| `delete_contact(api_version, note_id)` | Hard-delete a contact by its `NoteID` (GUID). |
 
 ### Usage examples
 
 ```python
-# 3.1 Get a single contact by ID
+from easy_acumatica import AcumaticaClient, QueryOptions, Filter
+from easy_acumatica.models.contact import ContactBuilder
+
+client = AcumaticaClient(...credentials...)
+
+# 3.1  Get a single contact by ID
 contact = client.contacts.get_contacts(
     "24.200.001",
-    options=QueryOptions(filter=Filter().eq("ContactID", 100073))
+    QueryOptions(filter=Filter().eq("ContactID", 100073))
 )[0]
 
-# 3.2 Paginate active contacts, 50 per page
-active_filter = Filter().eq("Status", "Active")
+# 3.2  Paginate active contacts, 50 per page
+active = Filter().eq("Status", "Active")
 page1 = client.contacts.get_contacts(
     "24.200.001",
-    options=QueryOptions(filter=active_filter, top=50, skip=0)
+    QueryOptions(filter=active, top=50, skip=0)
 )
 page2 = client.contacts.get_contacts(
     "24.200.001",
-    options=QueryOptions(filter=active_filter, top=50, skip=50)
+    QueryOptions(filter=active, top=50, skip=50)
 )
+
+# 3.3  Create a fresh contact
+new_contact = (
+    ContactBuilder()
+    .first_name("Brent")
+    .last_name("Edds")
+    .email("brent.edds@example.com")
+    .contact_class("ENDCUST")
+    .add_attribute("INTEREST", "Jam,Maint")
+)
+created = client.contacts.create_contact("24.200.001", new_contact)
+
+# 3.4  Deactivate it
+cid = created["ContactID"]["value"]
+client.contacts.deactivate_contact(
+    "24.200.001",
+    Filter().eq("ContactID", cid),
+    active=False,
+)
+
+# 3.5  Update its e-mail and phone
+patch = ContactBuilder().email("new.email@example.com").phone1("555-8123")
+client.contacts.update_contact(
+    "24.200.001",
+    Filter().eq("ContactID", cid),
+    patch,
+)
+
+# 3.6  Delete it permanently
+nid = created["NoteID"]["value"]
+client.contacts.delete_contact("24.200.001", nid)
 ```
 
 ---

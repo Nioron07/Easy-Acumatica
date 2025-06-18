@@ -31,7 +31,7 @@ from typing import Optional
 import requests
 
 # Sub‑services -------------------------------------------------------------
-from .contacts import ContactsService
+from .sub_services.contacts import ContactsService
 
 __all__ = ["AcumaticaClient"]
 

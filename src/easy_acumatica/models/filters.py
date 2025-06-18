@@ -1,4 +1,4 @@
-"""easy_acumatica.filters
+"""easy_acumatica.models.filters
 =======================
 
 Fluent helpers that turn Python objects into **OData‑v3** query strings.
