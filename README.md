@@ -90,15 +90,13 @@ params = opts.to_params()
 ---
 ## 3 Sub-Services
 Each Acumatica resource lives under a *service* object created by the
-client.
+client. Each of these contains different endpoints related to that sub-service
 
 
 
 ## 3.1  Contacts sub-service
 
-Each Acumatica resource lives under a *service* object created by the
-client.  **ContactsService** is the first example; additional services
-(e.g. `invoices`, `sales_orders`) follow the same pattern.
+The Contacts sub-service provides access to all contacts in your Acumatica account. It also supports filtering and query parameters
 
 ### Available endpoint methods
 
