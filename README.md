@@ -91,6 +91,7 @@ params = opts.to_params()
 ## 3 Sub-Services
 Each Acumatica resource lives under a *service* object created by the
 client. Each of these contains different endpoints related to that sub-service
+client.
 
 
 
