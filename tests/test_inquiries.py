@@ -2,7 +2,7 @@ import pytest
 from requests import Response, Session
 from easy_acumatica.sub_services.inquiries import InquiriesService
 from easy_acumatica.models.inquiry_builder import InquiryOptions
-from easy_acumatica.models.filters import QueryOptions
+from easy_acumatica.models.filter_builder import QueryOptions
 
 class DummyResponse(Response):
     def __init__(self, status_code: int, json_data: dict):
