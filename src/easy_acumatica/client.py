@@ -33,6 +33,7 @@ import requests
 # Sub‑services -------------------------------------------------------------
 from .sub_services.records import RecordsService
 from .sub_services.contacts import ContactsService
+from .sub_services.inquiries import InquiriesService
 
 __all__ = ["AcumaticaClient"]
 
@@ -81,6 +82,9 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.base_url: str = base_url.rstrip("/")
         self.session: requests.Session = requests.Session()
         self.verify_ssl: bool = verify_ssl
+        self.tenant: str = tenant
+        self.username: str = username
+        self.password: str = password
 
         # --- payload construction -----------------------------------
         payload = {
@@ -108,6 +112,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         # Service proxies --------------------------------------------------
         self.contacts: ContactsService = ContactsService(self)
         self.records: RecordsService = RecordsService(self)
+        self.inquiries: InquiriesService = InquiriesService(self)
 
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers

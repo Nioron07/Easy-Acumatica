@@ -111,3 +111,131 @@ def test_records_login_failure(requests_mock):
     with pytest.raises(HTTPError):
         AcumaticaClient(BASE, "u", "p", "t", "b", verify_ssl=False) \
             .records.create_record(API_VERSION, "Customer", {})
+
+# ---------------------------------------------------------------------
+# GET RECORD BY KEY FIELD
+# ---------------------------------------------------------------------
+def test_get_record_by_key_field_success(requests_mock, client):
+    # no filter → simply GET /Customer/KeyField/KeyValue
+    dummy = {"Foo": {"value": "Bar"}}
+    requests_mock.get(f"{CUSTOMER_URL}/KeyField/KeyValue", status_code=200, json=dummy)
+
+    res = client.records.get_record_by_key_field(
+        API_VERSION, "Customer", "KeyField", "KeyValue"
+    )
+    assert res == dummy
+    # verify that Accept header is present
+    last = requests_mock.request_history[-1]
+    assert last.headers["Accept"] == "application/json"
+
+
+def test_get_record_by_key_field_with_filter_error(client):
+    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+
+    opts = QueryOptions(filter=Filter().eq("X", "Y"))
+    with pytest.raises(ValueError) as exc:
+        client.records.get_record_by_key_field(
+            API_VERSION, "Customer", "KeyField", "KeyValue", opts
+        )
+    assert "QueryOptions.filter must be None" in str(exc.value)
+
+
+# ---------------------------------------------------------------------
+# GET RECORDS BY FILTER
+# ---------------------------------------------------------------------
+def test_get_records_by_filter_success(requests_mock, client):
+    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+
+    # must supply a filter
+    flt = Filter().eq("CustomerID", "A1")
+    opts = QueryOptions(filter=flt, select=["CustomerID"], top=2)
+    encoded = "?$filter=CustomerID%20eq%20'A1'&$select=CustomerID&$top=2"
+    expected = [{"CustomerID": {"value": "A1"}}, {"CustomerID": {"value": "A2"}}]
+
+    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=200, json=expected)
+
+    res = client.records.get_records_by_filter(API_VERSION, "Customer", opts)
+    assert res == expected
+
+    last = requests_mock.request_history[-1]
+    assert last.headers["Accept"] == "application/json"
+
+
+def test_get_records_by_filter_no_filter_error(client):
+    from easy_acumatica.models.filter_builder import QueryOptions
+
+    opts = QueryOptions(filter=None)
+    with pytest.raises(ValueError) as exc:
+        client.records.get_records_by_filter(API_VERSION, "Customer", opts)
+    assert "QueryOptions.filter must be set" in str(exc.value)
+
+
+# ---------------------------------------------------------------------
+# GET RECORD BY ID
+# ---------------------------------------------------------------------
+def test_get_record_by_id_success(requests_mock, client):
+    dummy = {"ID": "000123", "Status": {"value": "Open"}}
+    requests_mock.get(f"{CUSTOMER_URL}/000123", status_code=200, json=dummy)
+
+    res = client.records.get_record_by_id(
+        API_VERSION, "Customer", "000123"
+    )
+    assert res == dummy
+    last = requests_mock.request_history[-1]
+    assert last.headers["Accept"] == "application/json"
+
+
+def test_get_record_by_id_with_filter_error(client):
+    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+
+    opts = QueryOptions(filter=Filter().eq("X", "Y"))
+    with pytest.raises(ValueError) as exc:
+        client.records.get_record_by_id(API_VERSION, "Customer", "000123", opts)
+    assert "QueryOptions.filter must be None" in str(exc.value)
+
+
+# ---------------------------------------------------------------------
+# GET RECORD BY KEY FIELD — error path
+# ---------------------------------------------------------------------
+def test_get_record_by_key_field_http_error(requests_mock, client):
+    # simulate a 404 Not Found with JSON body
+    requests_mock.get(f"{CUSTOMER_URL}/KeyField/KeyValue", status_code=404, json={"message": "Not found"})
+    with pytest.raises(RuntimeError) as exc:
+        client.records.get_record_by_key_field(
+            API_VERSION, "Customer", "KeyField", "KeyValue"
+        )
+    # should contain the status code and detail
+    assert "404" in str(exc.value)
+    assert "Not found" in str(exc.value)
+
+
+# ---------------------------------------------------------------------
+# GET RECORDS BY FILTER — error path
+# ---------------------------------------------------------------------
+def test_get_records_by_filter_http_error(requests_mock, client):
+    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+
+    flt = Filter().eq("CustomerID", "A1")
+    opts = QueryOptions(filter=flt)
+    encoded = "?$filter=CustomerID%20eq%20'A1'"
+
+    # simulate a 500 Internal Server Error with plain-text body
+    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=500, text="Server exploded")
+    with pytest.raises(RuntimeError) as exc:
+        client.records.get_records_by_filter(API_VERSION, "Customer", opts)
+    assert "500" in str(exc.value)
+    assert "Server exploded" in str(exc.value)
+
+
+# ---------------------------------------------------------------------
+# GET RECORD BY ID — error path
+# ---------------------------------------------------------------------
+def test_get_record_by_id_http_error(requests_mock, client):
+    # simulate a 403 Forbidden with no JSON body
+    requests_mock.get(f"{CUSTOMER_URL}/000123", status_code=403, text="")
+    with pytest.raises(RuntimeError) as exc:
+        client.records.get_record_by_id(
+            API_VERSION, "Customer", "000123"
+        )
+    # should at least report the status code
+    assert "403" in str(exc.value)

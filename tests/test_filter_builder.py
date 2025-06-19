@@ -38,6 +38,11 @@ def test_filter_is_immutable():
     assert new.build() == "X eq 1 and Y eq 2"
 
 
+def test_cf_custom_field_reference():
+    cf_expr = Filter.cf("Decimal", "Document", "CuryBalanceWOTotal")
+    assert cf_expr == "cf.Decimal(f='Document.CuryBalanceWOTotal')"
+
+
 # ---------------------------------------------------------------------------
 # QueryOptions
 # ---------------------------------------------------------------------------
@@ -49,6 +54,7 @@ def test_to_params_full():
         select=["ContactID", "DisplayName"],
         top=10,
         skip=5,
+        custom=["ItemSettings.UsrRepairItemType"]
     )
     params = opts.to_params()
     assert params == {
@@ -57,6 +63,7 @@ def test_to_params_full():
         "$select": "ContactID,DisplayName",
         "$top": "10",
         "$skip": "5",
+        "$custom": "ItemSettings.UsrRepairItemType",
     }
 
 
@@ -80,3 +87,25 @@ def test_top_and_skip_types():
     opts = QueryOptions(top=1, skip=0)
     params = opts.to_params()
     assert params["$top"] == "1" and params["$skip"] == "0"
+
+
+def test_queryoptions_custom_alone():
+    opts = QueryOptions(custom=["Foo.Bar", "Baz.Quux"])
+    assert opts.to_params() == {"$custom": "Foo.Bar,Baz.Quux"}
+
+
+def test_to_params_with_custom_and_others():
+    flt = Filter().eq("ContactID", 102210)
+    opts = QueryOptions(
+        filter=flt,
+        top=5,
+        select=["ContactID", "DisplayName"],
+        custom=["ItemSettings.UsrRepairItemType"]
+    )
+    params = opts.to_params()
+    assert params == {
+        "$filter": "ContactID eq 102210",
+        "$select": "ContactID,DisplayName",
+        "$top": "5",
+        "$custom": "ItemSettings.UsrRepairItemType",
+    }

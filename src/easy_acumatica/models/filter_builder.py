@@ -1,11 +1,11 @@
 """easy_acumatica.models.filters
 =======================
 
-Fluent helpers that turn Python objects into **OData‑v3** query strings.
+Fluent helpers that turn Python objects into **OData-v3** query strings.
 Developers can compose complex ``$filter`` expressions and other query
 options without worrying about URL encoding or operator precedence.
 
-Quick start
+Quick start
 -----------
 >>> from easy_acumatica.filters import Filter, QueryOptions
 >>> flt = (
@@ -13,10 +13,17 @@ Quick start
 ...     .eq("ContactID", 102210)
 ...     .and_(Filter().contains("DisplayName", "Brian"))
 ... )
->>> opts = QueryOptions(filter=flt, top=5, select=["ContactID", "DisplayName"])
+>>> opts = QueryOptions(
+...     filter=flt,
+...     top=5,
+...     select=["ContactID", "DisplayName"],
+...     custom=["ItemSettings.UsrRepairItemType"]
+... )
 >>> opts.to_params()
 {'$filter': "ContactID eq 102210 and substringof('Brian',DisplayName)",
- '$select': 'ContactID,DisplayName', '$top': '5'}
+ '$select': 'ContactID,DisplayName',
+ '$top': '5',
+ '$custom': 'ItemSettings.UsrRepairItemType'}
 """
 from __future__ import annotations
 
@@ -31,15 +38,13 @@ __all__ = ["Filter", "QueryOptions"]
 class Filter:
     """Represent a **single** OData filter clause or a composition thereof.
 
-    The class is *immutable*: every predicate method returns **a brand‑new
-    instance**, allowing easy chaining without side‑effects.
+    The class is *immutable*: every predicate method returns **a brand-new
+    instance**, allowing easy chaining without side-effects.
     """
 
-    # ------------------------------------------------------------------
     def __init__(self, expr: str = "") -> None:
-        self.expr = expr  # raw OData expression snippet (no URL‑encoding yet)
+        self.expr = expr  # raw OData expression snippet (no URL-encoding yet)
 
-    # --- literal helper --------------------------------------------------
     @staticmethod
     def _lit(value: Any) -> str:
         """Quote and escape Python literals for OData.
@@ -51,17 +56,48 @@ class Filter:
             return "'" + value.replace("'", "''") + "'"
         return str(value)
 
-    # --- simple predicates ---------------------------------------------
+    @staticmethod
+    def cf(type_name: str, view_name: str, field_name: str) -> str:
+        """Build an OData custom-field reference string.
+
+        Args:
+            type_name: Name of the custom function (e.g., 'Decimal', 'DateTime').
+            view_name: Name of the data view containing the field (e.g., 'Document' or 'Details/Transactions').
+            field_name: Internal name of the custom field (e.g., 'UsrRepairItemType').
+
+        Returns:
+            A string like "cf.<TypeName>(f='<ViewName>.<FieldName>')".
+
+        Examples:
+            >>> Filter.cf("Decimal", "Document", "CuryBalanceWOTotal")
+            "cf.Decimal(f='Document.CuryBalanceWOTotal')"
+
+            # As part of a compound filter:
+            >>> amount_cf = Filter.cf("Decimal", "Document", "CuryBalanceWOTotal")
+            >>> date_cf = Filter.cf("DateTime", "Document", "DiscDate")
+            >>> flt = (
+...                 Filter()
+...                 .eq(amount_cf, "0M")
+...                 .and_(
+...                     Filter().gt(
+...                         date_cf,
+...                         "datetimeoffset'2024-02-18T23:59:59.999+04:00'"
+...                     )
+...                 )
+...             )
+        """
+        return f"cf.{type_name}(f='{view_name}.{field_name}')"
+
     def eq(self, field: str, value: Any) -> "Filter":
         """Field **equals** value."""
         return Filter(f"{field} eq {self._lit(value)}")
 
     def gt(self, field: str, value: Any) -> "Filter":
-        """Field **greater‑than** value."""
+        """Field **greater-than** value."""
         return Filter(f"{field} gt {self._lit(value)}")
 
     def lt(self, field: str, value: Any) -> "Filter":
-        """Field **less‑than** value."""
+        """Field **less-than** value."""
         return Filter(f"{field} lt {self._lit(value)}")
 
     def contains(self, field: str, substring: str) -> "Filter":
@@ -77,7 +113,6 @@ class Filter:
         esc = substring.replace("'", "''")
         return Filter(f"substringof('{esc}',{field})")
 
-    # --- compound predicates -------------------------------------------
     def and_(self, other: "Filter") -> "Filter":
         """Logical **AND** of two filter fragments."""
         return Filter(f"{self.expr} and {other.expr}")
@@ -86,19 +121,17 @@ class Filter:
         """Logical **OR** of two filter fragments."""
         return Filter(f"{self.expr} or {other.expr}")
 
-    # ------------------------------------------------------------------
-    def build(self) -> str:  # noqa: D401 – simple return
-        """Return the raw expression string (no URL‑encoding)."""
+    def build(self) -> str:
+        """Return the raw expression string (no URL-encoding)."""
         return self.expr
 
 
 # ---------------------------------------------------------------------------
-# QueryOptions – aggregate $filter, $expand, $select, $top, $skip
+# QueryOptions – aggregate $filter, $expand, $select, $top, $skip, $custom
 # ---------------------------------------------------------------------------
 class QueryOptions:
-    """Bundle all common OData query options into a single object."""
+    """Bundle all common OData query options into a single object, including custom fields."""
 
-    # pylint: disable=too-many-arguments
     def __init__(
         self,
         filter: Union[str, Filter, None] = None,
@@ -106,19 +139,20 @@ class QueryOptions:
         select: Optional[List[str]] = None,
         top: Optional[int] = None,
         skip: Optional[int] = None,
+        custom: Optional[List[str]] = None,
     ) -> None:
         self.filter = filter
         self.expand = expand
         self.select = select
         self.top = top
         self.skip = skip
+        self.custom = custom
 
-    # ------------------------------------------------------------------
     def to_params(self) -> Dict[str, str]:
-        """Convert stored options to a **requests‑ready** ``dict``.
+        """Convert stored options to a **requests-ready** ``dict``.
 
         The result can be passed directly to ``requests.get(..., params=...)``.
-        Values are *not* URL‑encoded; :pymod:`requests` will handle that.
+        Values are *not* URL-encoded; :pymod:`requests` will handle that.
         """
         params: Dict[str, str] = {}
 
@@ -134,5 +168,7 @@ class QueryOptions:
             params["$top"] = str(self.top)
         if self.skip is not None:
             params["$skip"] = str(self.skip)
+        if self.custom:
+            params["$custom"] = ",".join(self.custom)
 
         return params
