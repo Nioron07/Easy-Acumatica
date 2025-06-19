@@ -34,6 +34,10 @@ import requests
 from .sub_services.records import RecordsService
 from .sub_services.contacts import ContactsService
 from .sub_services.inquiries import InquiriesService
+from .sub_services.customers import CustomersService
+from .sub_services.codes import CodesService
+from .sub_services.files import FilesService
+from .helpers import _raise_with_detail
 
 __all__ = ["AcumaticaClient"]
 
@@ -63,6 +67,11 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         used (``en-US`` on most installations).
     verify_ssl : bool, default ``True``
         Whether to validate TLS certificates when talking to the server.
+    persistent_login : bool, default ``True``
+        Whether to login once on client creation and only logout at program exit. 
+        If false, client will login and logout before and after every function call.
+    retry_on_idle_logout : bool, default ``True``
+        Whether to retry function call if it recieves a 401 (Unathorized) error.
     """
 
     # ──────────────────────────────────────────────────────────────────
@@ -77,6 +86,8 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         branch: str,
         locale: Optional[str] = None,
         verify_ssl: bool = True,
+        persistent_login: bool = True,
+        retry_on_idle_logout: bool = True,
     ) -> None:
         # --- public attributes --------------------------------------
         self.base_url: str = base_url.rstrip("/")
@@ -85,6 +96,8 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.tenant: str = tenant
         self.username: str = username
         self.password: str = password
+        self.persistent_login: bool = persistent_login
+        self.retry_on_idle_logout: bool = retry_on_idle_logout
 
         # --- payload construction -----------------------------------
         payload = {
@@ -102,7 +115,8 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self._logged_in: bool = False
 
         # Perform an immediate login; will raise for HTTP errors
-        self.login()
+        if persistent_login:
+            self.login()
 
         # Ensure we always log out exactly once on normal interpreter exit
         if not AcumaticaClient._atexit_registered:
@@ -113,6 +127,9 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.contacts: ContactsService = ContactsService(self)
         self.records: RecordsService = RecordsService(self)
         self.inquiries: InquiriesService = InquiriesService(self)
+        self.customers: CustomersService = CustomersService(self)
+        self.codes: CodesService = CodesService(self)
+        self.files: FilesService = FilesService(self)
 
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers
@@ -148,7 +165,6 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         int
             HTTP status code (200 on success, 204 if no active session).
         """
-        print("Logging out")  # optional diagnostic; remove if too chatty
         if self._logged_in:
             url = f"{self.base_url}/entity/auth/logout"
             response = self.session.post(url, verify=self.verify_ssl)
@@ -168,6 +184,29 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         """
         try:
             self.logout()
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             # Avoid noisy tracebacks at interpreter shutdown
             pass
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        Perform a session request, raise on error, but if we get a 401
+        and retry_on_idle_logout is True, automatically re-login and retry once.
+        """
+        # first attempt
+        resp = getattr(self.session, method)(url, **kwargs)
+        try:
+            _raise_with_detail(resp)
+            return resp
+        except RuntimeError as exc:
+            # only retry on 401 if enabled
+            if resp.status_code == 401 and self.retry_on_idle_logout:
+                # force a fresh login
+                self._logged_in = False
+                self.login()
+                # retry exactly once
+                resp = getattr(self.session, method)(url, **kwargs)
+                _raise_with_detail(resp)
+                return resp
+            # re-raise any other error
+            raise

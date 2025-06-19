@@ -63,11 +63,18 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """Retrieve contacts, optionally filtered/expanded/selected."""
+
+        if not self._client.persistent_login:
+            self._client.login()
+
         url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
         params = options.to_params() if options else None
 
-        resp = self._client.session.get(url, params=params, verify=self._client.verify_ssl)
+        resp = self._client._request("get", url, params=params, verify=self._client.verify_ssl)
         _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
 
     # ------------------------------------------------------------------
@@ -91,13 +98,21 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         Any
             JSON representation of the newly‑created record.
         """
+        if not self._client.persistent_login:
+            self._client.login()
+
         url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
-        resp = self._client.session.put(
+        # _request will retry on 401 and raise on any other HTTP error
+        resp = self._client._request(
+            "put",
             url,
             json=draft.build(),
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
         return resp.json()
     # ------------------------------------------------------------------
     def deactivate_contact(
@@ -129,7 +144,9 @@ class ContactsService:  # pylint: disable=too-few-public-methods
             JSON payload returned by Acumatica (usually the updated
             records).
         """
-        # Build params ---------------------------------------------------
+        if not self._client.persistent_login:
+            self._client.login()
+
         if isinstance(filter_, QueryOptions):
             params = filter_.to_params()
         else:
@@ -139,12 +156,17 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
         payload = {"Active": {"value": bool(active)}}
 
-        resp = self._client.session.put(
-            url, params=params, json=payload, verify=self._client.verify_ssl
+        resp = self._client._request(
+            "put",
+            url,
+            params=params,
+            json=payload,
+            verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
-        return resp.json()
 
+        if not self._client.persistent_login:
+            self._client.logout()
+        return resp.json()
     # ------------------------------------------------------------------
     def update_contact(
         self,
@@ -172,20 +194,28 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         Any
             JSON list of the updated record(s) returned by Acumatica.
         """
-        # build `$filter` -------------------------------------------------
+        if not self._client.persistent_login:
+            self._client.login()
+
         if isinstance(filter_, QueryOptions):
             params = filter_.to_params()
         else:
-            params = {
-                "$filter": filter_.build() if isinstance(filter_, Filter) else str(filter_)
-            }
+            flt = filter_.build() if isinstance(filter_, Filter) else str(filter_)
+            params = {"$filter": flt}
 
         body = payload.build() if isinstance(payload, ContactBuilder) else payload
         url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
 
-        resp = self._client.session.put(url, params=params, json=body,
-                                        verify=self._client.verify_ssl)
-        _raise_with_detail(resp)
+        resp = self._client._request(
+            "put",
+            url,
+            params=params,
+            json=body,
+            verify=self._client.verify_ssl,
+        )
+
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
 
 
@@ -207,10 +237,15 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         * Deletion cannot be undone; consider using
         :meth:`deactivate_contact` if soft-delete semantics are preferred.
         """
+        if not self._client.persistent_login:
+            self._client.login()
+
         url = f"{self._client.base_url}/entity/Default/{api_version}/Contact/{note_id}"
-        resp = self._client.session.delete(url, verify=self._client.verify_ssl)
-        _raise_with_detail(resp)
-        return None
+        # this will now automatically retry if we got a 401
+        self._client._request("delete", url, verify=self._client.verify_ssl)
+
+        if not self._client.persistent_login:
+            self._client.logout()
     
     # ------------------------------------------------------------------
     def link_contact_to_customer(
@@ -244,19 +279,17 @@ class ContactsService:  # pylint: disable=too-few-public-methods
             JSON representation of the updated contact.
         """
         # --------------------- Build the request body ------------------
+
         if payload is None:
             body: dict[str, Any] = {}
         elif isinstance(payload, ContactBuilder):
             body = payload.build()
-        else:                                     # assume plain dict-like
-            body = dict(payload)                  # shallow copy for safety
+        else:
+            body = dict(payload)
 
-        # Ensure the mandatory linkage keys are present (and override any
-        # accidental mismatch in *payload*)
         body["BusinessAccount"] = {"value": business_account}
         body["ContactID"] = {"value": contact_id}
 
-        # ---------------- Build the $filter ---------------------------
-        flt = Filter().eq("ContactID", contact_id)
-        # Delegate to the generic updater (inherits uniform error handling)
-        return self.update_contact(api_version, flt, body)
+        # reuse update_contact (handles retry/login/logout)
+        result = self.update_contact(api_version, Filter().eq("ContactID", contact_id), body)
+        return result

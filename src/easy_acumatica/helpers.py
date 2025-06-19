@@ -21,7 +21,6 @@ def _raise_with_detail(resp: requests.Response) -> None:
         return  # 2xx ⇒ nothing to do
     except requests.HTTPError as exc:  # non-2xx path
         detail: str
-
         # ---- try to parse JSON -------------------------------------
         try:
             data = resp.json()

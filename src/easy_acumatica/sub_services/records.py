@@ -64,26 +64,22 @@ class RecordsService:
             JSON representation of the newly-created record returned by
             Acumatica.
         """
-        url = (
-            f"{self._client.base_url}/entity/Default/"
-            f"{api_version}/{entity}"
-        )
-
+        if not self._client.persistent_login:
+            self._client.login()
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         params = options.to_params() if options else None
-        headers = {
-            "If-None-Match": "*",            # ← asterisk enforces create-only
-            "Accept": "application/json",    # good practice, though optional
-        }
+        headers = {"If-None-Match": "*", "Accept": "application/json"}
         body = record.build() if isinstance(record, RecordBuilder) else record
-
-        resp = self._client.session.put(
+        resp = self._client._request(
+            "put",
             url,
             params=params,
             headers=headers,
             json=body,
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
 
     # ------------------------------------------------------------------
@@ -118,26 +114,22 @@ class RecordsService:
         Any
             JSON representation of the updated record (server response).
         """
-        url = (
-            f"{self._client.base_url}/entity/Default/"
-            f"{api_version}/{entity}"
-        )
-
+        if not self._client.persistent_login:
+            self._client.login()
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         params = options.to_params() if options else None
-        headers = {
-            "If-Match": "*",            # ← asterisk enforces create-only
-            "Accept": "application/json",    # good practice, though optional
-        }
+        headers = {"If-Match": "*", "Accept": "application/json"}
         body = record.build() if isinstance(record, RecordBuilder) else record
-
-        resp = self._client.session.put(
+        resp = self._client._request(
+            "put",
             url,
             params=params,
             headers=headers,
             json=body,
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
 
 
@@ -193,30 +185,24 @@ class RecordsService:
             >>> print(rec["OrderNbr"], rec["Status"])
         """
 
-        # ensure no filter was provided
+        if not self._client.persistent_login:
+            self._client.login()
         if options and options.filter:
             raise ValueError(
-                "QueryOptions.filter must be None otherwise the endpoint will not function as intended. "
-                "If you mean to retrieve records based on a $filter please use the get_records_by_filter() function"
+                "QueryOptions.filter must be None; use get_records_by_filter() instead"
             )
         params = options.to_params() if options else None
-
-        headers = {
-            "Accept": "application/json",    # specify JSON response
-        }
-
-        url = (
-            f"{self._client.base_url}/entity/Default/"
-            f"{api_version}/{entity}/{key}/{value}"
-        )
-
-        resp = self._client.session.get(
+        headers = {"Accept": "application/json"}
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{key}/{value}"
+        resp = self._client._request(
+            "get",
             url,
             params=params,
             headers=headers,
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
 
     def get_records_by_filter(
@@ -244,23 +230,24 @@ class RecordsService:
         Raises:
             ValueError: If options.filter is None.
         """
+        if not self._client.persistent_login:
+            self._client.login()
         if not options.filter:
-            raise ValueError("QueryOptions.filter must be set to an OData filter.")
-
+            raise ValueError("QueryOptions.filter must be set.")
         params = options.to_params()
-        headers: Dict[str, str] = {"Accept": "application/json"}
+        headers = {"Accept": "application/json"}
         if show_archived:
             headers["PX-ApiArchive"] = "SHOW"
-
         url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
-
-        resp = self._client.session.get(
+        resp = self._client._request(
+            "get",
             url,
             params=params,
             headers=headers,
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
 
 
@@ -312,28 +299,116 @@ class RecordsService:
             >>> print(rec["OrderNbr"], rec["Status"])
         """
 
-        # ensure no filter was provided
+        if not self._client.persistent_login:
+            self._client.login()
         if options and options.filter:
             raise ValueError(
-                "QueryOptions.filter must be None otherwise the endpoint will not function as intended. "
-                "If you mean to retrieve records based on a $filter please use the get_records_by_filter() function"
+                "QueryOptions.filter must be None; use get_records_by_filter() instead"
             )
         params = options.to_params() if options else None
-
-        headers = {
-            "Accept": "application/json",    # specify JSON response
-        }
-
-        url = (
-            f"{self._client.base_url}/entity/Default/"
-            f"{api_version}/{entity}/{id}"
-        )
-
-        resp = self._client.session.get(
+        headers = {"Accept": "application/json"}
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{id}"
+        resp = self._client._request(
+            "get",
             url,
             params=params,
             headers=headers,
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+        if not self._client.persistent_login:
+            self._client.logout()
         return resp.json()
+    
+    # ------------------------------------------------------------------
+    def delete_record_by_key_field(
+        self,
+        api_version: str,
+        entity: str,
+        key: str,
+        value: str
+    ) -> None:
+        """
+        Remove a record by its key fields.
+
+        Sends a DELETE request to:
+            {base_url}/entity/Default/{api_version}/{entity}/{key}/{value}
+
+        No query parameters or body are required.
+
+        Args:
+            api_version (str): Endpoint version, e.g. "24.200.001".
+            entity (str): Top-level entity name, e.g. "SalesOrder".
+            key (str): First key field’s value (e.g. order type "SO").
+            value (str): Second key field’s value (e.g. order number "000123").
+
+        Returns:
+            None
+
+        Raises:
+            AcumaticaError (RuntimeError):
+                If the HTTP response status is not 204, with detailed error
+                text extracted by `_raise_with_detail`.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = (
+            f"{self._client.base_url}"
+            f"/entity/Default/{api_version}/{entity}/{key}/{value}"
+        )
+        # perform the DELETE; will raise on non-2xx
+        resp = self._client._request(
+            "delete",
+            url,
+            headers={"Accept": "application/json"},
+            verify=self._client.verify_ssl,
+        )
+        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+        # DELETE returns 204 No Content on success; we return None
+
+
+    # ------------------------------------------------------------------
+    def delete_record_by_id(
+        self,
+        api_version: str,
+        entity: str,
+        record_id: str
+    ) -> None:
+        """
+        Remove a record by its Acumatica session identifier (entity ID).
+
+        Sends a DELETE request to:
+            {base_url}/entity/Default/{api_version}/{entity}/{record_id}
+
+        No query parameters or body are required.
+
+        Args:
+            api_version (str): Endpoint version, e.g. "24.200.001".
+            entity (str): Top-level entity name, e.g. "SalesOrder".
+            record_id (str): GUID of the record to remove.
+
+        Raises:
+            RuntimeError: If the HTTP response status is not 204,
+                          `_raise_with_detail` will raise with details.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = (
+            f"{self._client.base_url}"
+            f"/entity/Default/{api_version}/{entity}/{record_id}"
+        )
+        resp = self._client._request(
+            "delete",
+            url,
+            headers={"Accept": "application/json"},
+            verify=self._client.verify_ssl,
+        )
+        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+        # on 204 No Content, simply return None

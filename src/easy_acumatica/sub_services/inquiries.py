@@ -56,19 +56,27 @@ class InquiriesService:
             >>> for r in rows:
             ...     print(r['InventoryID'], r['AvailableQty'])
         """
+        if not self._client.persistent_login:
+            self._client.login()
+
         url = f"{self._client.base_url}/entity/Default/{api_version}/{inquiry}"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        resp = self._client.session.put(
+
+        resp = self._client._request(
+            "put",
             url,
             params=opts.to_query_params(),
             json=opts.to_body(),
             headers=headers,
             verify=self._client.verify_ssl,
         )
-        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
         return resp.json()
 
     def execute_generic_inquiry(
@@ -101,19 +109,23 @@ class InquiriesService:
             >>> for item in data.get("value", []):
             ...     print(item["InventoryID"])
         """
-        # Build the OData Generic Inquiry URL
+        if not self._client.persistent_login:
+            self._client.login()
+
         url = f"{self._client.base_url}/t/{self._client.tenant}/api/odata/gi/{inquiry_title}"
         headers = {"Accept": "application/json"}
-
         params = opts.to_params() if opts else None
 
-        # Include basic auth on the OData request
-        resp = self._client.session.get(
+        resp = self._client._request(
+            "get",
             url,
             params=params,
             headers=headers,
             verify=self._client.verify_ssl,
             auth=(self._client.username, self._client.password),
         )
-        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
         return resp.json()

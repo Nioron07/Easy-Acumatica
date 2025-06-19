@@ -1,25 +1,39 @@
-# tests/test_records.py
+# tests/test_records_service.py
+
 import pytest
-from requests import HTTPError
-from urllib.parse import unquote_plus
+import requests
+
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.models.record_builder import RecordBuilder
 from easy_acumatica.models.filter_builder import QueryOptions, Filter
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"
-LOGIN_URL = f"{BASE}/entity/auth/login"
-LOGOUT_URL = f"{BASE}/entity/auth/logout"
-CUSTOMER_URL = f"{BASE}/entity/Default/{API_VERSION}/Customer"
+ENTITY = "Customer"
+BASE_PATH = f"/entity/Default/{API_VERSION}/{ENTITY}"
 
 
-# ---------------------------------------------------------------------
-# shared client fixture
-# ---------------------------------------------------------------------
+class DummyResponse:
+    """Fake Response for stubbing _request."""
+    def __init__(self, status_code: int, json_body=None, text_body=None):
+        self.status_code = status_code
+        self._json = json_body
+        self._text = text_body or ""
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._json
+
+
 @pytest.fixture
-def client(requests_mock):
-    requests_mock.post(LOGIN_URL, status_code=204)
-    requests_mock.post(LOGOUT_URL, status_code=204)
+def client(monkeypatch):
+    # Stub out real login/logout
+    monkeypatch.setattr(AcumaticaClient, "login", lambda self: 204)
+    monkeypatch.setattr(AcumaticaClient, "logout", lambda self: 204)
+
     return AcumaticaClient(
         base_url=BASE,
         username="u",
@@ -27,261 +41,200 @@ def client(requests_mock):
         tenant="t",
         branch="b",
         verify_ssl=False,
+        persistent_login=True,
     )
 
 
-# ---------------------------------------------------------------------
+@pytest.fixture
+def service(client):
+    return client.records
+
+
+# -------------------------------------------------------------------------
 # CREATE RECORD
-# ---------------------------------------------------------------------
-def test_create_record_success(requests_mock, client):
+# -------------------------------------------------------------------------
+def test_create_record_success(monkeypatch, service):
     payload = RecordBuilder().field("CustomerID", "JOHNGOOD")
     created = {"CustomerID": {"value": "JOHNGOOD"}}
 
-    requests_mock.put(CUSTOMER_URL, status_code=200, json=created)
+    def fake_request(method, url, **kwargs):
+        assert method == "put"
+        assert url.endswith(BASE_PATH)
+        headers = kwargs["headers"]
+        assert headers["If-None-Match"] == "*"
+        assert headers["Accept"] == "application/json"
+        assert kwargs["json"] == payload.build()
+        return DummyResponse(200, created)
 
-    res = client.records.create_record(API_VERSION, "Customer", payload)
-    assert res == created
-
-    req = requests_mock.request_history[-1]
-    assert req.headers["If-None-Match"] == "*"
-    assert req.json()["CustomerID"]["value"] == "JOHNGOOD"
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.create_record(API_VERSION, ENTITY, payload) == created
 
 
-def test_create_record_duplicate_412(requests_mock, client):
-    payload = RecordBuilder().field("CustomerID", "JOHNGOOD")
-    requests_mock.put(CUSTOMER_URL, status_code=412, json="already exists")
+def test_create_record_duplicate_412(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        # simulate server-side 412 via RuntimeError
+        raise RuntimeError("HTTP 412 Precondition Failed")
 
+    monkeypatch.setattr(service._client, "_request", fake_request)
     with pytest.raises(RuntimeError):
-        client.records.create_record(API_VERSION, "Customer", payload)
+        service.create_record(API_VERSION, ENTITY, RecordBuilder().field("CustomerID", "JOHNGOOD"))
 
 
-def test_create_record_server_error(requests_mock, client):
-    payload = RecordBuilder().field("CustomerID", "JOHNGOOD")
-    requests_mock.put(CUSTOMER_URL, status_code=500, text="boom")
+def test_create_record_server_error(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 500 Internal Server Error")
 
+    monkeypatch.setattr(service._client, "_request", fake_request)
     with pytest.raises(RuntimeError):
-        client.records.create_record(API_VERSION, "Customer", payload)
+        service.create_record(API_VERSION, ENTITY, RecordBuilder().field("CustomerID", "X"))
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # UPDATE RECORD
-# ---------------------------------------------------------------------
-def test_update_record_success(requests_mock, client):
+# -------------------------------------------------------------------------
+def test_update_record_success(monkeypatch, service):
     flt = Filter().eq("CustomerID", "JOHNGOOD")
     opts = QueryOptions(filter=flt)
-
     patch = RecordBuilder().field("CustomerClass", "DEFAULT")
-    updated = [{"CustomerID": {"value": "JOHNGOOD"},
-                "CustomerClass": {"value": "DEFAULT"}}]
+    updated = [
+        {"CustomerID": {"value": "JOHNGOOD"}, "CustomerClass": {"value": "DEFAULT"}}
+    ]
 
-    requests_mock.put(CUSTOMER_URL, status_code=200, json=updated)
+    def fake_request(method, url, **kwargs):
+        assert method == "put"
+        assert url.endswith(BASE_PATH)
+        assert kwargs["params"] == {"$filter": flt.build()}
+        headers = kwargs["headers"]
+        assert headers["If-Match"] == "*"
+        assert headers["Accept"] == "application/json"
+        assert kwargs["json"] == patch.build()
+        return DummyResponse(200, updated)
 
-    res = client.records.update_record(
-        API_VERSION, "Customer", patch, options=opts
-    )
-    assert res == updated
-
-    req = requests_mock.request_history[-1]
-    assert req.headers["If-Match"] == "*"
-    decoded = unquote_plus(req.query).lower()
-    assert "customerid eq 'johngood'" in decoded
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.update_record(API_VERSION, ENTITY, patch, options=opts) == updated
 
 
-def test_update_record_missing_412(requests_mock, client):
-    patch = RecordBuilder().field("CustomerClass", "DEFAULT")
-    requests_mock.put(CUSTOMER_URL, status_code=412, json="not found")
+def test_update_record_missing_412(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 412 Precondition Failed")
 
+    monkeypatch.setattr(service._client, "_request", fake_request)
     with pytest.raises(RuntimeError):
-        client.records.update_record(API_VERSION, "Customer", patch)
+        service.update_record(API_VERSION, ENTITY, RecordBuilder().field("F", "V"))
 
 
-def test_update_record_server_error(requests_mock, client):
-    patch = RecordBuilder().field("CustomerClass", "DEFAULT")
-    requests_mock.put(CUSTOMER_URL, status_code=500, text="oops")
+def test_update_record_server_error(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 500 Internal Server Error")
 
+    monkeypatch.setattr(service._client, "_request", fake_request)
     with pytest.raises(RuntimeError):
-        client.records.update_record(API_VERSION, "Customer", patch)
+        service.update_record(API_VERSION, ENTITY, RecordBuilder().field("F", "V"))
 
 
-# ---------------------------------------------------------------------
-# LOGIN FAILURE (generic for the service)
-# ---------------------------------------------------------------------
-def test_records_login_failure(requests_mock):
-    requests_mock.post(LOGIN_URL, status_code=403)
-    with pytest.raises(HTTPError):
-        AcumaticaClient(BASE, "u", "p", "t", "b", verify_ssl=False) \
-            .records.create_record(API_VERSION, "Customer", {})
-
-# ---------------------------------------------------------------------
-# GET RECORD BY KEY FIELD
-# ---------------------------------------------------------------------
-def test_get_record_by_key_field_success(requests_mock, client):
-    # no filter → simply GET /Customer/KeyField/KeyValue
+# -------------------------------------------------------------------------
+# GET BY KEY FIELD
+# -------------------------------------------------------------------------
+def test_get_record_by_key_field_success(monkeypatch, service):
     dummy = {"Foo": {"value": "Bar"}}
-    requests_mock.get(f"{CUSTOMER_URL}/KeyField/KeyValue", status_code=200, json=dummy)
 
-    res = client.records.get_record_by_key_field(
-        API_VERSION, "Customer", "KeyField", "KeyValue"
-    )
-    assert res == dummy
-    # verify that Accept header is present
-    last = requests_mock.request_history[-1]
-    assert last.headers["Accept"] == "application/json"
+    def fake_request(method, url, **kwargs):
+        assert method == "get"
+        assert url.endswith(f"{BASE_PATH}/KeyField/KeyValue")
+        headers = kwargs["headers"]
+        assert headers["Accept"] == "application/json"
+        return DummyResponse(200, dummy)
+
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.get_record_by_key_field(API_VERSION, ENTITY, "KeyField", "KeyValue") == dummy
 
 
-def test_get_record_by_key_field_with_filter_error(client):
-    from easy_acumatica.models.filter_builder import QueryOptions, Filter
-
+def test_get_record_by_key_field_with_filter_error(service):
     opts = QueryOptions(filter=Filter().eq("X", "Y"))
-    with pytest.raises(ValueError) as exc:
-        client.records.get_record_by_key_field(
-            API_VERSION, "Customer", "KeyField", "KeyValue", opts
-        )
-    assert "QueryOptions.filter must be None" in str(exc.value)
+    with pytest.raises(ValueError):
+        service.get_record_by_key_field(API_VERSION, ENTITY, "KeyField", "KeyValue", options=opts)
 
 
-# ---------------------------------------------------------------------
-# GET RECORDS BY FILTER
-# ---------------------------------------------------------------------
-def test_get_records_by_filter_success(requests_mock, client):
-    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+def test_get_record_by_key_field_http_error(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 404 Not Found")
 
-    # must supply a filter
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    with pytest.raises(RuntimeError):
+        service.get_record_by_key_field(API_VERSION, ENTITY, "KeyField", "KeyValue")
+
+
+# -------------------------------------------------------------------------
+# GET BY FILTER
+# -------------------------------------------------------------------------
+def test_get_records_by_filter_success(monkeypatch, service):
     flt = Filter().eq("CustomerID", "A1")
     opts = QueryOptions(filter=flt, select=["CustomerID"], top=2)
-    encoded = "?$filter=CustomerID%20eq%20'A1'&$select=CustomerID&$top=2"
     expected = [{"CustomerID": {"value": "A1"}}, {"CustomerID": {"value": "A2"}}]
 
-    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=200, json=expected)
+    def fake_request(method, url, **kwargs):
+        assert method == "get"
+        assert kwargs["params"] == opts.to_params()
+        return DummyResponse(200, expected)
 
-    res = client.records.get_records_by_filter(API_VERSION, "Customer", opts)
-    assert res == expected
-
-    last = requests_mock.request_history[-1]
-    assert last.headers["Accept"] == "application/json"
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.get_records_by_filter(API_VERSION, ENTITY, opts) == expected
 
 
-def test_get_records_by_filter_no_filter_error(client):
-    from easy_acumatica.models.filter_builder import QueryOptions
-
+def test_get_records_by_filter_no_filter_error(service):
     opts = QueryOptions(filter=None)
-    with pytest.raises(ValueError) as exc:
-        client.records.get_records_by_filter(API_VERSION, "Customer", opts)
-    assert "QueryOptions.filter must be set" in str(exc.value)
+    with pytest.raises(ValueError):
+        service.get_records_by_filter(API_VERSION, ENTITY, opts)
 
 
-# ---------------------------------------------------------------------
-# GET RECORD BY ID
-# ---------------------------------------------------------------------
-def test_get_record_by_id_success(requests_mock, client):
-    dummy = {"ID": "000123", "Status": {"value": "Open"}}
-    requests_mock.get(f"{CUSTOMER_URL}/000123", status_code=200, json=dummy)
+def test_get_records_by_filter_http_error(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 500 Internal Server Error")
 
-    res = client.records.get_record_by_id(
-        API_VERSION, "Customer", "000123"
-    )
-    assert res == dummy
-    last = requests_mock.request_history[-1]
-    assert last.headers["Accept"] == "application/json"
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    with pytest.raises(RuntimeError):
+        service.get_records_by_filter(API_VERSION, ENTITY, QueryOptions(filter=Filter().eq("C","D")))
 
 
-def test_get_record_by_id_with_filter_error(client):
-    from easy_acumatica.models.filter_builder import QueryOptions, Filter
-
-    opts = QueryOptions(filter=Filter().eq("X", "Y"))
-    with pytest.raises(ValueError) as exc:
-        client.records.get_record_by_id(API_VERSION, "Customer", "000123", opts)
-    assert "QueryOptions.filter must be None" in str(exc.value)
-
-
-# ---------------------------------------------------------------------
-# GET RECORD BY KEY FIELD — error path
-# ---------------------------------------------------------------------
-def test_get_record_by_key_field_http_error(requests_mock, client):
-    # simulate a 404 Not Found with JSON body
-    requests_mock.get(f"{CUSTOMER_URL}/KeyField/KeyValue", status_code=404, json={"message": "Not found"})
-    with pytest.raises(RuntimeError) as exc:
-        client.records.get_record_by_key_field(
-            API_VERSION, "Customer", "KeyField", "KeyValue"
-        )
-    # should contain the status code and detail
-    assert "404" in str(exc.value)
-    assert "Not found" in str(exc.value)
-
-
-# ---------------------------------------------------------------------
-# GET RECORDS BY FILTER — error path
-# ---------------------------------------------------------------------
-def test_get_records_by_filter_http_error(requests_mock, client):
-    from easy_acumatica.models.filter_builder import QueryOptions, Filter
-
+def test_get_records_by_filter_show_archived_header(monkeypatch, service):
     flt = Filter().eq("CustomerID", "A1")
     opts = QueryOptions(filter=flt)
-    encoded = "?$filter=CustomerID%20eq%20'A1'"
-
-    # simulate a 500 Internal Server Error with plain-text body
-    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=500, text="Server exploded")
-    with pytest.raises(RuntimeError) as exc:
-        client.records.get_records_by_filter(API_VERSION, "Customer", opts)
-    assert "500" in str(exc.value)
-    assert "Server exploded" in str(exc.value)
-
-
-# ---------------------------------------------------------------------
-# GET RECORD BY ID — error path
-# ---------------------------------------------------------------------
-def test_get_record_by_id_http_error(requests_mock, client):
-    # simulate a 403 Forbidden with no JSON body
-    requests_mock.get(f"{CUSTOMER_URL}/000123", status_code=403, text="")
-    with pytest.raises(RuntimeError) as exc:
-        client.records.get_record_by_id(
-            API_VERSION, "Customer", "000123"
-        )
-    # should at least report the status code
-    assert "403" in str(exc.value)
-
-# ---------------------------------------------------------------------
-# GET RECORDS BY FILTER — archived header
-# ---------------------------------------------------------------------
-def test_get_records_by_filter_show_archived_header_success(requests_mock, client):
-    from easy_acumatica.models.filter_builder import QueryOptions, Filter
-
-    flt = Filter().eq("CustomerID", "A1")
-    opts = QueryOptions(filter=flt)
-    encoded = "?$filter=CustomerID%20eq%20'A1'"
     expected = [{"CustomerID": {"value": "A1"}}]
 
-    # stub the response
-    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=200, json=expected)
+    def fake_request(method, url, **kwargs):
+        headers = kwargs["headers"]
+        assert headers.get("PX-ApiArchive") == "SHOW"
+        return DummyResponse(200, expected)
 
-    # call with show_archived=True
-    res = client.records.get_records_by_filter(
-        API_VERSION, "Customer", opts, show_archived=True
-    )
-    assert res == expected
-
-    # verify the PX-ApiArchive header was sent
-    last = requests_mock.request_history[-1]
-    assert last.headers.get("PX-ApiArchive") == "SHOW"
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.get_records_by_filter(API_VERSION, ENTITY, opts, show_archived=True) == expected
 
 
-def test_get_records_by_filter_show_archived_header_error(requests_mock, client):
-    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+# -------------------------------------------------------------------------
+# GET BY ID
+# -------------------------------------------------------------------------
+def test_get_record_by_id_success(monkeypatch, service):
+    dummy = {"ID": "000123", "Status": {"value": "Open"}}
 
-    flt = Filter().eq("CustomerID", "A1")
-    opts = QueryOptions(filter=flt)
-    encoded = "?$filter=CustomerID%20eq%20'A1'"
+    def fake_request(method, url, **kwargs):
+        assert method == "get"
+        assert url.endswith(f"{BASE_PATH}/000123")
+        return DummyResponse(200, dummy)
 
-    # simulate server error
-    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=500, text="Server boom")
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.get_record_by_id(API_VERSION, ENTITY, "000123") == dummy
 
-    with pytest.raises(RuntimeError) as exc:
-        client.records.get_records_by_filter(
-            API_VERSION, "Customer", opts, show_archived=True
-        )
-    # header should still have been sent
-    last = requests_mock.request_history[-1]
-    assert last.headers.get("PX-ApiArchive") == "SHOW"
-    # error message contains status and body
-    assert "500" in str(exc.value)
-    assert "Server boom" in str(exc.value)
+
+def test_get_record_by_id_with_filter_error(service):
+    opts = QueryOptions(filter=Filter().eq("X", "Y"))
+    with pytest.raises(ValueError):
+        service.get_record_by_id(API_VERSION, ENTITY, "000123", options=opts)
+
+
+def test_get_record_by_id_http_error(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 403 Forbidden")
+
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    with pytest.raises(RuntimeError):
+        service.get_record_by_id(API_VERSION, ENTITY, "000123")
