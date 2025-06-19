@@ -1,7 +1,7 @@
 import pytest
 from requests import Response, Session
 from easy_acumatica.sub_services.inquiries import InquiriesService
-from easy_acumatica.models.inquiry_builder import InquiryOptions
+from easy_acumatica.models.inquiry_builder import InquiryBuilder
 from easy_acumatica.models.filter_builder import QueryOptions
 
 class DummyResponse(Response):
@@ -48,7 +48,7 @@ def test_get_data_from_inquiry_form(monkeypatch, client, results_json, expected)
         lambda url, params, json, headers, verify: dummy_resp
     )
     svc = InquiriesService(client)
-    opts = InquiryOptions().param("A", "B").expand("Results")
+    opts = InquiryBuilder().param("A", "B").expand("Results")
     out = svc.get_data_from_inquiry_form("v1", "InquiryX", opts)
     assert out == expected
 

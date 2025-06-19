@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, List, Dict
 
-from ..models.inquiry_builder import InquiryOptions
+from ..models.inquiry_builder import InquiryBuilder
 from ..models.filter_builder import QueryOptions
 from ..helpers import _raise_with_detail
 
@@ -20,7 +20,7 @@ class InquiriesService:
         self,
         api_version: str,
         inquiry: str,
-        opts: InquiryOptions
+        opts: InquiryBuilder
     ) -> List[Dict[str, Any]]:
         """
         Execute a generic inquiry via PUT and return its Results.
@@ -28,12 +28,12 @@ class InquiriesService:
         Constructs and sends a PUT request to:
             {base_url}/entity/Default/{api_version}/{inquiry}?{query_params}
 
-        The request body is the JSON parameters built by InquiryOptions.
+        The request body is the JSON parameters built by InquiryBuilder.
 
         Args:
             api_version (str): Contract-based endpoint version (e.g. '24.200.001').
             inquiry (str): Name of the inquiry endpoint (e.g. 'InventorySummaryInquiry').
-            opts (InquiryOptions): Builder containing parameters and expand clauses.
+            opts (InquiryBuilder): Builder containing parameters and expand clauses.
 
         Returns:
             List[Dict[str, Any]]: The array under the 'Results' key, or the full body if absent.
@@ -43,7 +43,7 @@ class InquiriesService:
 
         Example:
             >>> opts = (
-            ...     InquiryOptions()
+            ...     InquiryBuilder()
             ...     .param('InventoryID', 'SIMCARD')
             ...     .param('WarehouseID', 'YOGI')
             ...     .expand('Results')

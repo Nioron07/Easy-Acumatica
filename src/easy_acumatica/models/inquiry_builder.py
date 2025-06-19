@@ -1,21 +1,21 @@
 """
-InquiryOptions and get_inquiry_results
+InquiryBuilder and get_inquiry_results
 --------------------------------------
 
 This module provides a chainable builder for Acumatica generic-inquiry calls
 and a client method to execute those inquiries via the contract-based REST API.
 
 Classes:
-    InquiryOptions: Fluent builder for inquiry parameters and expands.
+    InquiryBuilder: Fluent builder for inquiry parameters and expands.
 
 Functions:
     get_inquiry_results: Execute a PUT on a generic inquiry endpoint and return results.
 """
 from typing import Any, Dict, List
 
-__all__ = ["InquiryOptions", "get_inquiry_results"]
+__all__ = ["InquiryBuilder", "get_inquiry_results"]
 
-class InquiryOptions:
+class InquiryBuilder:
     """
     Fluent builder for generic inquiry calls.
 
@@ -32,7 +32,7 @@ class InquiryOptions:
         self._parameters: Dict[str, Dict[str, Any]] = {}
         self._expand: List[str] = []
 
-    def param(self, field: str, value: Any) -> "InquiryOptions":
+    def param(self, field: str, value: Any) -> "InquiryBuilder":
         """
         Add or overwrite an inquiry parameter in the request body.
 
@@ -41,12 +41,12 @@ class InquiryOptions:
             value (Any): Value to assign to the parameter.
 
         Returns:
-            InquiryOptions: self, to allow chaining.
+            InquiryBuilder: self, to allow chaining.
         """
         self._parameters[field] = {"value": value}
         return self
 
-    def expand(self, *entities: str) -> "InquiryOptions":
+    def expand(self, *entities: str) -> "InquiryBuilder":
         """
         Specify one or more detail entities to expand in the response.
 
@@ -54,7 +54,7 @@ class InquiryOptions:
             *entities (str): Names of the detail entities to expand (e.g. "Results").
 
         Returns:
-            InquiryOptions: self, to allow chaining.
+            InquiryBuilder: self, to allow chaining.
         """
         self._expand.extend(entities)
         return self
