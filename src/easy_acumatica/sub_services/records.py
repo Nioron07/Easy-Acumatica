@@ -1,7 +1,7 @@
 # services/records.py
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, List, Dict
 
 from ..models.record_builder import RecordBuilder
 from ..models.filter_builder import QueryOptions
@@ -219,60 +219,40 @@ class RecordsService:
         _raise_with_detail(resp)
         return resp.json()
 
-    # ------------------------------------------------------------------
     def get_records_by_filter(
         self,
         api_version: str,
         entity: str,
-        options: QueryOptions
-    ):
+        options: QueryOptions,
+        show_archived: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         Retrieve one or more records by filter from Acumatica ERP.
 
         Sends a GET request to:
             {base_url}/entity/Default/{api_version}/{entity}?{params}
 
-        The filter clause must be provided via options.filter.
-
         Args:
-            api_version (str):
-                The contract-based endpoint version, e.g. "24.200.001".
-            entity (str):
-                The name of the top-level entity to query, e.g. "SalesOrder".
-            options (QueryOptions):
-                A QueryOptions instance with its `.filter` set to either
-                a Filter object or an OData filter string. You can also
-                specify select, expand, top, skip here.
+            api_version (str): Contract version, e.g. "24.200.001".
+            entity (str): Top-level entity name.
+            options (QueryOptions): Must have options.filter set.
+            show_archived (bool): If True, include archived records via PX-ApiArchive header.
 
         Returns:
-            list[dict]:
-                A list of JSON-decoded records matching the filter.
+            List[Dict[str, Any]]: JSON-decoded records matching the filter.
 
         Raises:
-            ValueError:
-                If options.filter is None or empty.
-            AcumaticaError:
-                If the HTTP response status is not 200,
-                `_raise_with_detail` will raise with response details.
-
-        Example:
-            >>> flt = Filter().eq("OrderType", "SO").and_(Filter().eq("OrderNbr","000123"))
-            >>> opts = QueryOptions(filter=flt, select=["OrderNbr","Status"], top=10)
-            >>> recs = client.get_records_by_filter("24.200.001", "SalesOrder", opts)
-            >>> for r in recs:
-            ...     print(r["OrderNbr"], r["Status"])
+            ValueError: If options.filter is None.
         """
-        # ensure a filter was provided
         if not options.filter:
-            raise ValueError("QueryOptions.filter must be set to an OData filter before calling this method.")
+            raise ValueError("QueryOptions.filter must be set to an OData filter.")
 
         params = options.to_params()
-        headers = {"Accept": "application/json"}
+        headers: Dict[str, str] = {"Accept": "application/json"}
+        if show_archived:
+            headers["PX-ApiArchive"] = "SHOW"
 
-        url = (
-            f"{self._client.base_url}/entity/Default/"
-            f"{api_version}/{entity}"
-        )
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
 
         resp = self._client.session.get(
             url,

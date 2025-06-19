@@ -239,3 +239,49 @@ def test_get_record_by_id_http_error(requests_mock, client):
         )
     # should at least report the status code
     assert "403" in str(exc.value)
+
+# ---------------------------------------------------------------------
+# GET RECORDS BY FILTER — archived header
+# ---------------------------------------------------------------------
+def test_get_records_by_filter_show_archived_header_success(requests_mock, client):
+    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+
+    flt = Filter().eq("CustomerID", "A1")
+    opts = QueryOptions(filter=flt)
+    encoded = "?$filter=CustomerID%20eq%20'A1'"
+    expected = [{"CustomerID": {"value": "A1"}}]
+
+    # stub the response
+    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=200, json=expected)
+
+    # call with show_archived=True
+    res = client.records.get_records_by_filter(
+        API_VERSION, "Customer", opts, show_archived=True
+    )
+    assert res == expected
+
+    # verify the PX-ApiArchive header was sent
+    last = requests_mock.request_history[-1]
+    assert last.headers.get("PX-ApiArchive") == "SHOW"
+
+
+def test_get_records_by_filter_show_archived_header_error(requests_mock, client):
+    from easy_acumatica.models.filter_builder import QueryOptions, Filter
+
+    flt = Filter().eq("CustomerID", "A1")
+    opts = QueryOptions(filter=flt)
+    encoded = "?$filter=CustomerID%20eq%20'A1'"
+
+    # simulate server error
+    requests_mock.get(f"{CUSTOMER_URL}{encoded}", status_code=500, text="Server boom")
+
+    with pytest.raises(RuntimeError) as exc:
+        client.records.get_records_by_filter(
+            API_VERSION, "Customer", opts, show_archived=True
+        )
+    # header should still have been sent
+    last = requests_mock.request_history[-1]
+    assert last.headers.get("PX-ApiArchive") == "SHOW"
+    # error message contains status and body
+    assert "500" in str(exc.value)
+    assert "Server boom" in str(exc.value)

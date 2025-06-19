@@ -46,13 +46,18 @@ class Filter:
         self.expr = expr  # raw OData expression snippet (no URL-encoding yet)
 
     @staticmethod
-    def _lit(value: Any) -> str:
-        """Quote and escape Python literals for OData.
-
-        Strings are wrapped in single quotes and internal quotes doubled
-        per the OData grammar.  Other types are coerced with :pyfunc:`str`.
+    def raw(expr: str) -> "Filter":
         """
+        Treat expr as already-quoted or OData-literal syntax.
+        """
+        return Filter(expr)
+
+    @staticmethod
+    def _lit(value: Any) -> str:
         if isinstance(value, str):
+            # if it’s already an OData literal, don’t re-quote
+            if value.startswith("datetimeoffset") or value.startswith("guid") or value.startswith("cf."):
+                return value
             return "'" + value.replace("'", "''") + "'"
         return str(value)
 

@@ -43,6 +43,25 @@ def test_cf_custom_field_reference():
     assert cf_expr == "cf.Decimal(f='Document.CuryBalanceWOTotal')"
 
 
+def test_raw_expression_passthrough():
+    # raw() should wrap exactly what you give it
+    fb = Filter.raw("Foo eq 5")
+    assert isinstance(fb, Filter)
+    assert fb.build() == "Foo eq 5"
+
+
+def test_datetimeoffset_literal_unquoted():
+    lit = "datetimeoffset'2024-12-31T00:00:00Z'"
+    expr = Filter().lt("ShipmentDate", lit).build()
+    assert expr == f"ShipmentDate lt {lit}"
+
+
+def test_guid_literal_unquoted():
+    lit = "guid'1234abcd-0000-0000-0000-000000000000'"
+    expr = Filter().eq("NoteID", lit).build()
+    assert expr == f"NoteID eq {lit}"
+
+
 # ---------------------------------------------------------------------------
 # QueryOptions
 # ---------------------------------------------------------------------------
