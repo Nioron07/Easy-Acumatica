@@ -41,6 +41,17 @@ class Filter:
         """Initializes the Filter with a string fragment."""
         self.expr = expr
 
+    def __getattr__(self, name: str) -> "Filter":
+        """
+        Handles nested attribute access for linked entities.
+
+        This allows for creating expressions like `F.MainContact.Email`,
+        which translates to the OData path 'MainContact/Email'.
+        """
+        # Append the new attribute with a '/' for OData path navigation
+        new_expr = f"{self.expr}/{name}"
+        return Filter(new_expr)
+    
     # --- Private Helpers ---
     @staticmethod
     def _to_literal(value: Any) -> str:
