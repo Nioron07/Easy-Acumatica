@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.filter_builder import QueryOptions, Filter
+from ..models.query_builder import QueryOptions
+from ..models.filter_builder import F
 from ..models.customer_builder import CustomerBuilder
 from ..helpers import _raise_with_detail
 
@@ -251,7 +252,7 @@ class CustomersService:
         Returns the 'ShippingContact' dict for that customer, or None if not found.
         """
         opts = QueryOptions(
-            filter=Filter().eq("CustomerID", customer_id),
+            filter=F.CustomerID == customer_id,
             expand=["ShippingContact"]
         )
         results = self.get_customers(api_version, opts)

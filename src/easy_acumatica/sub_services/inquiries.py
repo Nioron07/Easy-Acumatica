@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, List, Dict
 
 from ..models.inquiry_builder import InquiryBuilder
-from ..models.filter_builder import QueryOptions
+from ..models.query_builder import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:                                       # pragma: no cover

@@ -35,7 +35,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Union
 
-from ..models.filter_builder import QueryOptions, Filter
+from ..models.filter_builder import Filter, F
+from ..models.query_builder import QueryOptions
 from ..models.contact_builder import ContactBuilder  # payload builder
 from ..helpers import _raise_with_detail
 if TYPE_CHECKING:  # pragma: no cover – import‑time hint only
@@ -291,5 +292,5 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         body["ContactID"] = {"value": contact_id}
 
         # reuse update_contact (handles retry/login/logout)
-        result = self.update_contact(api_version, Filter().eq("ContactID", contact_id), body)
+        result = self.update_contact(api_version, F.ContactID == contact_id, body)
         return result

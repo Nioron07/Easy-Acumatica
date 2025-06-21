@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from .records import RecordsService
 from ..helpers import _raise_with_detail
-from ..models.filter_builder import QueryOptions
+from ..models.query_builder import QueryOptions
 
 if TYPE_CHECKING:
     from ..client import AcumaticaClient

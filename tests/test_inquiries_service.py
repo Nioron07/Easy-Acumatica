@@ -9,7 +9,7 @@ from requests import Response
 
 from easy_acumatica.sub_services.inquiries import InquiriesService
 from easy_acumatica.models.inquiry_builder import InquiryBuilder
-from easy_acumatica.models.filter_builder import QueryOptions
+from easy_acumatica.models.query_builder import QueryOptions
 
 
 class DummyResponse(Response):

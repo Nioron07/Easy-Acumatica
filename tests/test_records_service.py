@@ -5,7 +5,8 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.models.record_builder import RecordBuilder
-from easy_acumatica.models.filter_builder import QueryOptions, Filter
+from easy_acumatica.models.filter_builder import F
+from easy_acumatica.models.query_builder import QueryOptions
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"
@@ -93,7 +94,7 @@ def test_create_record_server_error(monkeypatch, service):
 # UPDATE RECORD
 # -------------------------------------------------------------------------
 def test_update_record_success(monkeypatch, service):
-    flt = Filter().eq("CustomerID", "JOHNGOOD")
+    flt = F.CustomerID == "JOHNGOOD"
     opts = QueryOptions(filter=flt)
     patch = RecordBuilder().field("CustomerClass", "DEFAULT")
     updated = [
@@ -150,7 +151,7 @@ def test_get_record_by_key_field_success(monkeypatch, service):
 
 
 def test_get_record_by_key_field_with_filter_error(service):
-    opts = QueryOptions(filter=Filter().eq("X", "Y"))
+    opts = QueryOptions(filter=F.X == F.Y)
     with pytest.raises(ValueError):
         service.get_record_by_key_field(API_VERSION, ENTITY, "KeyField", "KeyValue", options=opts)
 
@@ -168,7 +169,7 @@ def test_get_record_by_key_field_http_error(monkeypatch, service):
 # GET BY FILTER
 # -------------------------------------------------------------------------
 def test_get_records_by_filter_success(monkeypatch, service):
-    flt = Filter().eq("CustomerID", "A1")
+    flt = F.CustomerID == "A1"
     opts = QueryOptions(filter=flt, select=["CustomerID"], top=2)
     expected = [{"CustomerID": {"value": "A1"}}, {"CustomerID": {"value": "A2"}}]
 
@@ -193,11 +194,11 @@ def test_get_records_by_filter_http_error(monkeypatch, service):
 
     monkeypatch.setattr(service._client, "_request", fake_request)
     with pytest.raises(RuntimeError):
-        service.get_records_by_filter(API_VERSION, ENTITY, QueryOptions(filter=Filter().eq("C","D")))
+        service.get_records_by_filter(API_VERSION, ENTITY, QueryOptions(filter=F.C == F.D))
 
 
 def test_get_records_by_filter_show_archived_header(monkeypatch, service):
-    flt = Filter().eq("CustomerID", "A1")
+    flt = F.CustomerID == "A1"
     opts = QueryOptions(filter=flt)
     expected = [{"CustomerID": {"value": "A1"}}]
 
@@ -226,7 +227,7 @@ def test_get_record_by_id_success(monkeypatch, service):
 
 
 def test_get_record_by_id_with_filter_error(service):
-    opts = QueryOptions(filter=Filter().eq("X", "Y"))
+    opts = QueryOptions(filter= F.X == F.Y)
     with pytest.raises(ValueError):
         service.get_record_by_id(API_VERSION, ENTITY, "000123", options=opts)
 

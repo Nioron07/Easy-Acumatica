@@ -1,5 +1,4 @@
 # tests/test_code_builders.py
-import pytest
 
 from easy_acumatica.models.code_builder import (
     DeductionBenefitCodeBuilder,

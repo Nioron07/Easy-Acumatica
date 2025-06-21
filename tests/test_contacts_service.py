@@ -4,7 +4,8 @@ import pytest
 import requests
 
 from easy_acumatica import AcumaticaClient
-from easy_acumatica.models.filter_builder import Filter, QueryOptions
+from easy_acumatica.models.filter_builder import F
+from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.contact_builder import ContactBuilder
 
 API_VERSION = "24.200.001"
@@ -87,7 +88,7 @@ def test_get_contacts_with_options(monkeypatch, service):
     monkeypatch.setattr(service._client, "_request", fake_request)
 
     opts = QueryOptions(
-        filter=Filter().eq("X", "Y"),
+        filter=F.X == F.Y,
         expand=["E"],
         select=["S"],
         top=3,
@@ -133,7 +134,7 @@ def test_create_contact_validation_error(monkeypatch, service):
 # deactivate_contact
 # -------------------------------------------------------------------------
 def test_deactivate_contact_success(monkeypatch, service):
-    flt = Filter().eq("ContactID", 1)
+    flt = F.ContactID == 1
     updated = [{"Active": {"value": False}}]
 
     def fake_request(method, url, **kwargs):
@@ -155,14 +156,14 @@ def test_deactivate_contact_server_error(monkeypatch, service):
     monkeypatch.setattr(service._client, "_request", fake_request)
 
     with pytest.raises(RuntimeError):
-        service.deactivate_contact(API_VERSION, Filter().eq("ContactID", 1))
+        service.deactivate_contact(API_VERSION, F.ContactID == 1)
 
 
 # -------------------------------------------------------------------------
 # update_contact
 # -------------------------------------------------------------------------
 def test_update_contact_success(monkeypatch, service):
-    flt = Filter().eq("ContactID", 1)
+    flt = F.ContactID == 1
     builder = ContactBuilder().email("new@example.com")
     updated = [{"Email": {"value": "new@example.com"}}]
 
@@ -179,7 +180,7 @@ def test_update_contact_success(monkeypatch, service):
 
 
 def test_update_contact_validation_error(monkeypatch, service):
-    flt = Filter().eq("ContactID", 1)
+    flt = F.ContactID == 1
 
     def fake_request(method, url, **kwargs):
         raise RuntimeError("HTTP 422 Validation Error")

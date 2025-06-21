@@ -5,7 +5,8 @@ import requests
 
 from easy_acumatica.sub_services.customers import CustomersService
 from easy_acumatica.models.customer_builder import CustomerBuilder
-from easy_acumatica.models.filter_builder import QueryOptions, Filter
+from easy_acumatica.models.filter_builder import F
+from easy_acumatica.models.query_builder import QueryOptions
 
 
 class DummyResponse:
@@ -64,7 +65,7 @@ def test_get_customers_with_options(monkeypatch, service, client):
     monkeypatch.setattr(client.session, "get", fake_get, raising=False)
 
     opts = QueryOptions(
-        filter=Filter().eq("A", "B"),
+        filter=F.A == F.B,
         select=["X"], expand=["Y"], top=5, skip=2, custom=["Z"]
     )
     out = service.get_customers("24.200.001", opts)
@@ -117,7 +118,7 @@ def test_update_customer_success(monkeypatch, service, client):
 
     builder = CustomerBuilder().set("F", "V")
     opts = QueryOptions(
-        filter=Filter().eq("K", "V"),
+        filter=F.K == "V",
         expand=["E"], select=["S"]
     )
     out = service.update_customer("v1", builder, opts)
@@ -135,7 +136,7 @@ def test_update_customer_error(monkeypatch, service, client):
     monkeypatch.setattr(client, "_request", fake_request, raising=False)
 
     with pytest.raises(RuntimeError):
-        service.update_customer("v1", CustomerBuilder(), QueryOptions(filter=Filter().eq("A","B")))
+        service.update_customer("v1", CustomerBuilder(), QueryOptions(filter=F.A == F.B))
 
 
 # -------------------------------------------------------------------------

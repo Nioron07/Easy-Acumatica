@@ -1,391 +1,241 @@
+# src/easy_acumatica/models/filter_builder.py
 """
-easy_acumatica.models.filters
-=============================
+easy_acumatica.models.filter_builder
+====================================
 
-Fluent helpers that turn Python objects into **OData-v3** query strings.
-Developers can compose complex ``$filter`` expressions and other query
-options without worrying about URL encoding, operator precedence, or the
-specific syntax of OData math, date, and string functions.
+A Pythonic, fluent DSL for creating OData v3 filter queries using a
+factory object and operator overloading.
 
 This module provides:
-  - ``Filter``: build logical and comparison filters
-  - ``MathBuilder``: construct arithmetic expressions
-  - ``DateBuilder``: extract date/time parts
-  - ``StringBuilder``: manipulate string values
-  - ``QueryOptions``: aggregate and serialize all query options
+  - ``F``: A factory object to create field Filters (e.g., `F.Price`).
+  - ``Filter``: An object representing an OData Filter that
+    overloads Python operators.
+
+Example:
+--------
+>>> from easy_acumatica.models.filter_builder import F, QueryOptions
+>>> # Build filter: (Price sub 5) gt 10 and startswith(tolower(Name), 'a')
+>>> f = ((F.Price - 5) > 10) & F.Name.tolower().startswith('a')
+>>>
+>>> opts = QueryOptions(filter=f, top=10)
+>>> print(opts.to_params()['$filter'])
+(((Price sub 5) gt 10) and startswith(tolower(Name),'a'))
 """
 from __future__ import annotations
+from typing import Optional, Any
 
-from typing import List, Optional, Union, Dict, Any
-
-__all__ = [
-    "Filter",
-    "QueryOptions",
-    "MathBuilder",
-    "DateBuilder",
-    "StringBuilder",
-]
+__all__ = ["F", "Filter", "QueryOptions"]
 
 
-# ---------------------------------------------------------------------------
-# Filter class – build $filter clauses
-# ---------------------------------------------------------------------------
 class Filter:
     """
-    Represent a single OData $filter clause or a composition thereof.
+    Represents an OData filter expression with overloaded operators for fluent building.
 
-    Immutable: each predicate returns a new Filter instance, so you can
-    chain without side-effects.
+    Instances of this class are typically created via the `F` factory object,
+    which allows for a highly readable, declarative syntax for building queries.
+    All operator overloads and methods return a new `Filter` instance, allowing
+    for safe, immutable chaining of operations.
     """
 
-    def __init__(self, expr: str = "") -> None:
-        """
-        Initialize with a raw OData expression fragment (no URL-encoding).
-        """
+    def __init__(self, expr: str):
+        """Initializes the Filter with a string fragment."""
         self.expr = expr
 
+    # --- Private Helpers ---
     @staticmethod
-    def raw(expr: str) -> "Filter":
+    def _to_literal(value: Any) -> str:
         """
-        Treat `expr` as already-quoted or literal OData syntax.
-        """
-        return Filter(expr)
+        Converts a Python value to its OData literal string representation.
 
-    @staticmethod
-    def _lit(value: Any) -> str:
+        - Strings are enclosed in single quotes, with internal quotes escaped.
+        - Booleans are converted to 'true' or 'false'.
+        - None is converted to 'null'.
+        - Filter objects have their expression string extracted.
+        - Other types are converted directly to strings.
         """
-        Quote Python values into OData literals:
-        - strings are wrapped in single-quotes and escaped
-        - numeric types are rendered without quotes
-        - known OData literal prefixes (datetimeoffset, guid, cf.) pass through
-        """
+        if isinstance(value, Filter):
+            return value.expr
         if isinstance(value, str):
-            if value.startswith(("datetimeoffset", "guid", "cf.")):
-                return value
+            # Escape single quotes for OData compliance
             return f"'{value.replace("'", "''")}'"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if value is None:
+            return "null"
         return str(value)
 
-    @staticmethod
-    def cf(type_name: str, view_name: str, field_name: str) -> str:
+    def _binary_op(self, op: str, other: Any, right_to_left: bool = False) -> Filter:
         """
-        Build a custom-field reference: cf.TypeName(f='ViewName.FieldName').
+        Internal helper for creating infix binary operations (e.g., `a + b`, `x > y`).
+        Handles right-hand-side operations for commutativity.
         """
-        return f"cf.{type_name}(f='{view_name}.{field_name}')"
+        left = self._to_literal(other) if right_to_left else self.expr
+        right = self.expr if right_to_left else self._to_literal(other)
+        return Filter(f"({left} {op} {right})")
 
-    def eq(
-        self,
-        left: Union[str, MathBuilder, DateBuilder, StringBuilder],
-        right: Union[Any, MathBuilder, DateBuilder, StringBuilder],
-    ) -> "Filter":
-        """left **equals** right (unwraps any builder)."""
-        left_expr = left.expr if hasattr(left, "expr") else left
-        right_expr = right.expr if hasattr(right, "expr") else self._lit(right)
-        return Filter(f"{left_expr} eq {right_expr}")
+    def _function(self, func_name: str, *args: Any) -> Filter:
+        """Internal helper for creating OData function call expressions."""
+        all_args = [self.expr] + [self._to_literal(arg) for arg in args]
+        return Filter(f"{func_name}({','.join(all_args)})")
 
-    def gt(
-        self,
-        left: Union[str, MathBuilder, DateBuilder, StringBuilder],
-        right: Union[Any, MathBuilder, DateBuilder, StringBuilder],
-    ) -> "Filter":
-        """left **greater-than** right (unwraps any builder)."""
-        left_expr = left.expr if hasattr(left, "expr") else left
-        right_expr = right.expr if hasattr(right, "expr") else self._lit(right)
-        return Filter(f"{left_expr} gt {right_expr}")
+    # --- Comparison Operators (e.g., F.Name == 'John') ---
+    def __eq__(self, other: Any) -> Filter: return self._binary_op("eq", other)
+    def __ne__(self, other: Any) -> Filter: return self._binary_op("ne", other)
+    def __gt__(self, other: Any) -> Filter: return self._binary_op("gt", other)
+    def __ge__(self, other: Any) -> Filter: return self._binary_op("ge", other)
+    def __lt__(self, other: Any) -> Filter: return self._binary_op("lt", other)
+    def __le__(self, other: Any) -> Filter: return self._binary_op("le", other)
 
-    def ge(
-        self,
-        left: Union[str, MathBuilder, DateBuilder, StringBuilder],
-        right: Union[Any, MathBuilder, DateBuilder, StringBuilder],
-    ) -> "Filter":
-        """left **greater-than or equal-to** right (unwraps any builder)."""
-        left_expr = left.expr if hasattr(left, "expr") else left
-        right_expr = right.expr if hasattr(right, "expr") else self._lit(right)
-        return Filter(f"{left_expr} ge {right_expr}")
+    # --- Logical Operators (e.g., (F.A > 1) & (F.B < 2) ) ---
+    # Note: These overload the bitwise operators &, |, and ~ for 'and', 'or', and 'not'.
+    def __and__(self, other: Any) -> Filter: return self._binary_op("and", other)
+    def __or__(self, other: Any) -> Filter: return self._binary_op("or", other)
+    def __invert__(self) -> Filter: return Filter(f"not ({self.expr})")
 
-    def lt(
-        self,
-        left: Union[str, MathBuilder, DateBuilder, StringBuilder],
-        right: Union[Any, MathBuilder, DateBuilder, StringBuilder],
-    ) -> "Filter":
-        """left **less-than** right (unwraps any builder)."""
-        left_expr = left.expr if hasattr(left, "expr") else left
-        right_expr = right.expr if hasattr(right, "expr") else self._lit(right)
-        return Filter(f"{left_expr} lt {right_expr}")
+    # --- Arithmetic Operators (e.g., F.Price * 1.1) ---
+    # The 'r' versions (e.g., __radd__) handle cases where the Filter is on the right side.
+    def __add__(self, other: Any) -> Filter: return self._binary_op("add", other)
+    def __radd__(self, other: Any) -> Filter: return self._binary_op("add", other, True)
+    def __sub__(self, other: Any) -> Filter: return self._binary_op("sub", other)
+    def __rsub__(self, other: Any) -> Filter: return self._binary_op("sub", other, True)
+    def __mul__(self, other: Any) -> Filter: return self._binary_op("mul", other)
+    def __rmul__(self, other: Any) -> Filter: return self._binary_op("mul", other, True)
+    def __truediv__(self, other: Any) -> Filter: return self._binary_op("div", other)
+    def __rtruediv__(self, other: Any) -> Filter: return self._binary_op("div", other, True)
+    def __mod__(self, other: Any) -> Filter: return self._binary_op("mod", other)
+    def __rmod__(self, other: Any) -> Filter: return self._binary_op("mod", other, True)
 
-    def le(
-        self,
-        left: Union[str, MathBuilder, DateBuilder, StringBuilder],
-        right: Union[Any, MathBuilder, DateBuilder, StringBuilder],
-    ) -> "Filter":
-        """left **less-than or equal-to** right (unwraps any builder)."""
-        left_expr = left.expr if hasattr(left, "expr") else left
-        right_expr = right.expr if hasattr(right, "expr") else self._lit(right)
-        return Filter(f"{left_expr} le {right_expr}")
+    # --- OData Function Methods ---
+    def contains(self, substring: Any) -> Filter:
+        """Creates an OData `substringof(substring, field)` filter."""
+        return Filter(f"substringof({self._to_literal(substring)}, {self.expr})")
 
-    def contains(self, field: str, substring: Union[str, StringBuilder]) -> "Filter":
-        """
-        substringof helper. If you pass a StringBuilder, it will be
-        embedded verbatim; if you pass any other str that looks like
-        an expression (contains '(' and ')'), it will be wrapped as a
-        raw literal; otherwise it'll be properly escaped.
-        """
-        # builder instance?
-        if hasattr(substring, "expr"):
-            return Filter(f"substringof({substring.expr},{field})")
-        # raw-looking expression? treat as literal but don't escape inner quotes
-        if "(" in substring and ")" in substring:
-            return Filter(f"substringof('{substring}',{field})")
-        # simple literal: escape quotes
-        esc = substring.replace("'", "''")
-        return Filter(f"substringof('{esc}',{field})")
+    def endswith(self, suffix: Any) -> Filter:
+        """Creates an OData `endswith(field, suffix)` filter."""
+        return self._function("endswith", suffix)
 
-    def starts_with(self, field: str, prefix: Union[str, StringBuilder]) -> "Filter":
-        """OData startswith; unwraps StringBuilder if given."""
-        if hasattr(prefix, "expr"):
-            return Filter(f"startswith({field},{prefix.expr})")
-        esc = prefix.replace("'", "''")
-        return Filter(f"startswith({field},'{esc}')")
+    def startswith(self, prefix: Any) -> Filter:
+        """Creates an OData `startswith(field, prefix)` filter."""
+        return self._function("startswith", prefix)
 
-    def ends_with(self, field: str, suffix: Union[str, StringBuilder]) -> "Filter":
-        """OData endswith; unwraps StringBuilder if given."""
-        if hasattr(suffix, "expr"):
-            return Filter(f"endswith({field},{suffix.expr})")
-        esc = suffix.replace("'", "''")
-        return Filter(f"endswith({field},'{esc}')")
-    def and_(self, other: "Filter") -> "Filter":
-        """Logical **AND** of two filter fragments."""
-        return Filter(f"({self.expr} and {other.expr})")
+    def length(self) -> Filter:
+        """Creates an OData `length(field)` filter."""
+        return Filter(f"length({self.expr})")
 
-    def or_(self, other: "Filter") -> "Filter":
-        """Logical **OR** of two filter fragments."""
-        return Filter(f"({self.expr} or {other.expr})")
+    def indexof(self, substring: Any) -> Filter:
+        """Creates an OData `indexof(field, substring)` filter."""
+        return self._function("indexof", substring)
 
-    def not_(self, other: "Filter") -> "Filter":
-        """Logical **NOT** of a filter fragment."""
-        return Filter(f"not ({other.expr})")
+    def replace(self, find: Any, replace_with: Any) -> Filter:
+        """Creates an OData `replace(field, find, replace_with)` filter."""
+        return self._function("replace", find, replace_with)
 
+    def substring(self, pos: int, length: Optional[int] = None) -> Filter:
+        """Creates an OData `substring(field, pos, length?)` filter."""
+        return self._function("substring", pos) if length is None else self._function("substring", pos, length)
+
+    def tolower(self) -> Filter:
+        """Creates an OData `tolower(field)` filter."""
+        return Filter(f"tolower({self.expr})")
+
+    def toupper(self) -> Filter:
+        """Creates an OData `toupper(field)` filter."""
+        return Filter(f"toupper({self.expr})")
+
+    def trim(self) -> Filter:
+        """Creates an OData `trim(field)` filter."""
+        return Filter(f"trim({self.expr})")
+
+    def concat(self, other: Any) -> Filter:
+        """Creates an OData `concat(field, other)` filter."""
+        return self._function("concat", other)
+
+    def day(self) -> Filter:
+        """Creates an OData `day(date_field)` filter."""
+        return Filter(f"day({self.expr})")
+
+    def hour(self) -> Filter:
+        """Creates an OData `hour(date_field)` filter."""
+        return Filter(f"hour({self.expr})")
+
+    def minute(self) -> Filter:
+        """Creates an OData `minute(date_field)` filter."""
+        return Filter(f"minute({self.expr})")
+
+    def month(self) -> Filter:
+        """Creates an OData `month(date_field)` filter."""
+        return Filter(f"month({self.expr})")
+
+    def second(self) -> Filter:
+        """Creates an OData `second(date_field)` filter."""
+        return Filter(f"second({self.expr})")
+
+    def year(self) -> Filter:
+        """Creates an OData `year(date_field)` filter."""
+        return Filter(f"year({self.expr})")
+
+    def round(self) -> Filter:
+        """Creates an OData `round(numeric_field)` filter."""
+        return Filter(f"round({self.expr})")
+
+    def floor(self) -> Filter:
+        """Creates an OData `floor(numeric_field)` filter."""
+        return Filter(f"floor({self.expr})")
+
+    def ceiling(self) -> Filter:
+        """Creates an OData `ceiling(numeric_field)` filter."""
+        return Filter(f"ceiling({self.expr})")
+
+    def isof(self, type_name: Optional[str] = None) -> Filter:
+        """Creates an OData `isof(type)` or `isof(field, type)` filter."""
+        return self._function("isof", self._to_literal(type_name)) if type_name else Filter(f"isof({self.expr})")
+
+    # --- Finalization ---
     def build(self) -> str:
-        """Return the raw expression string (no URL-encoding)."""
+        """Returns the final OData filter string, ready to be used in a query."""
         return self.expr
-
-
-# ---------------------------------------------------------------------------
-# QueryOptions – bundle all OData query parameters
-# ---------------------------------------------------------------------------
-class QueryOptions:
-    """
-    Combine $filter, $expand, $select, $top, $skip, and $custom into
-    a single object and serialize to a dict for requests.
-    """
-
-    def __init__(
-        self,
-        filter: Union[str, Filter, None] = None,
-        expand: Optional[List[str]] = None,
-        select: Optional[List[str]] = None,
-        top: Optional[int] = None,
-        skip: Optional[int] = None,
-        custom: Optional[List[str]] = None,
-    ) -> None:
-        self.filter = filter
-        self.expand = expand
-        self.select = select
-        self.top = top
-        self.skip = skip
-        self.custom = custom
-
-    def to_params(self) -> Dict[str, str]:
-        """Serialize to a dict ready for requests.get(..., params=...)."""
-        params: Dict[str, str] = {}
-        if self.filter:
-            params["$filter"] = (
-                self.filter.build() if isinstance(self.filter, Filter) else str(self.filter)
-            )
-        if self.expand:
-            params["$expand"] = ",".join(self.expand)
-        if self.select:
-            params["$select"] = ",".join(self.select)
-        if self.top is not None:
-            params["$top"] = str(self.top)
-        if self.skip is not None:
-            params["$skip"] = str(self.skip)
-        if self.custom:
-            params["$custom"] = ",".join(self.custom)
-        return params
-
-
-# ---------------------------------------------------------------------------
-# MathBuilder – construct arithmetic expressions
-# ---------------------------------------------------------------------------
-class MathBuilder:
-    """
-    Build OData arithmetic: add, sub, mul, div, mod, and rounding functions.
-
-    Example:
-        expr = MathBuilder.field("Price").add(5).mul(2)
-        # yields "(Price add 5) mul 2"
-    """
-
-    def __init__(self, expr: str) -> None:
-        self.expr = expr
-
-    @classmethod
-    def field(cls, name: str) -> "MathBuilder":
-        """Start from a field name."""
-        return cls(name)
-
-    @classmethod
-    def raw(cls, expr: str) -> "MathBuilder":
-        """Use a raw OData expression snippet."""
-        return cls(expr)
-
-    def add(self, other: Union[MathBuilder, int, float, str]) -> "MathBuilder":
-        """Add two operands."""
-        rhs = other.expr if isinstance(other, MathBuilder) else str(other)
-        return MathBuilder(f"({self.expr} add {rhs})")
-
-    def sub(self, other: Union[MathBuilder, int, float, str]) -> "MathBuilder":
-        """Subtract two operands."""
-        rhs = other.expr if isinstance(other, MathBuilder) else str(other)
-        return MathBuilder(f"({self.expr} sub {rhs})")
-
-    def mul(self, other: Union[MathBuilder, int, float, str]) -> "MathBuilder":
-        """Multiply two operands."""
-        rhs = other.expr if isinstance(other, MathBuilder) else str(other)
-        return MathBuilder(f"({self.expr} mul {rhs})")
-
-    def div(self, other: Union[MathBuilder, int, float, str]) -> "MathBuilder":
-        """Divide two operands."""
-        rhs = other.expr if isinstance(other, MathBuilder) else str(other)
-        return MathBuilder(f"({self.expr} div {rhs})")
-
-    def mod(self, other: Union[MathBuilder, int, float, str]) -> "MathBuilder":
-        """Modulo operation."""
-        rhs = other.expr if isinstance(other, MathBuilder) else str(other)
-        return MathBuilder(f"({self.expr} mod {rhs})")
-
-    def round(self) -> "MathBuilder":
-        """Round to nearest integer."""
-        return MathBuilder(f"round({self.expr})")
-
-    def floor(self) -> "MathBuilder":
-        """Floor function."""
-        return MathBuilder(f"floor({self.expr})")
-
-    def ceiling(self) -> "MathBuilder":
-        """Ceiling function."""
-        return MathBuilder(f"ceiling({self.expr})")
 
     def __str__(self) -> str:
-        return self.expr
+        """Allows the Filter object to be cast directly to a string."""
+        return self.build()
 
-    __repr__ = __str__
-
-
-# ---------------------------------------------------------------------------
-# DateBuilder – extract date/time parts
-# ---------------------------------------------------------------------------
-class DateBuilder:
-    """Builds an OData date expression, e.g. day(BirthDate)."""
-
-    @staticmethod
-    def day(field: str) -> str:
-        return f"day({field})"
-
-    @staticmethod
-    def hour(field: str) -> str:
-        return f"hour({field})"
-
-    @staticmethod
-    def minute(field: str) -> str:
-        return f"minute({field})"
-
-    @staticmethod
-    def month(field: str) -> str:
-        return f"month({field})"
-
-    @staticmethod
-    def second(field: str) -> str:
-        return f"second({field})"
-
-    @staticmethod
-    def year(field: str) -> str:
-        return f"year({field})"
+    def __repr__(self) -> str:
+        """Provides a developer-friendly representation of the Filter object."""
+        return f"Filter('{self.expr}')"
 
 
-# ---------------------------------------------------------------------------
-# StringBuilder – string transformations
-# ---------------------------------------------------------------------------
-class StringBuilder:
+class _FieldFactory:
     """
-    Build OData string functions: length, indexof, replace, substring,
-    tolower, toupper, trim, concat.
+    Creates Filter objects for Acumatica field names via simple attribute access.
 
-    Example:
-        StringBuilder.field("Name").substring(1,2).toupper()
+    This factory allows you to write `F.FieldName` instead of `Filter('FieldName')`,
+    making the filter definition syntax much cleaner and more readable.
     """
+    def __getattr__(self, name: str) -> Filter:
+        """
+        Dynamically creates a Filter object representing a field name.
 
-    def __init__(self, expr: str) -> None:
-        self.expr = expr
+        Example:
+            >>> F.OrderID
+            Filter('OrderID')
+        """
+        return Filter(name)
 
-    @classmethod
-    def raw(cls, expr: str) -> "StringBuilder":
-        """Use a raw field or expression."""
-        return cls(expr)
+    def cf(self, type_name: str, view_name: str, field_name: str) -> Filter:
+        """
+        Creates a Filter object for a custom field.
 
-    @classmethod
-    def field(cls, field_name: str) -> "StringBuilder":
-        """Start from a bare field name."""
-        return cls(field_name)
+        This helper generates the specific 'cf' syntax required by Acumatica.
 
-    def length(self) -> "StringBuilder":
-        """Get string length."""
-        return StringBuilder(f"length({self.expr})")
+        Args:
+            type_name (str): The type of the custom element (e.g., 'String', 'Decimal').
+            view_name (str): The name of the data view containing the element.
+            field_name (str): The internal name of the element.
 
-    def indexof(self, what: Union[str, StringBuilder]) -> "StringBuilder":
-        """Find substring position."""
-        arg = what.expr if isinstance(what, StringBuilder) else f"'{what.replace("'","''")}'"
-        return StringBuilder(f"indexof({self.expr},{arg})")
+        Returns:
+            A Filter object representing the custom field expression.
+        """
+        return Filter(f"cf.{type_name}(f='{view_name}.{field_name}')")
 
-    def replace(
-        self,
-        old: Union[str, StringBuilder],
-        new: Union[str, StringBuilder]
-    ) -> "StringBuilder":
-        """Replace occurrences of old with new."""
-        def lit(val):
-            return val.expr if isinstance(val, StringBuilder) else f"'{val.replace("'","''")}'"
-        return StringBuilder(f"replace({self.expr},{lit(old)},{lit(new)})")
-
-    def substring(
-        self,
-        pos: Union[int, StringBuilder],
-        length: Optional[Union[int, StringBuilder]] = None
-    ) -> "StringBuilder":
-        """Extract substring at pos, optional length."""
-        def fmt(x): return x.expr if isinstance(x, StringBuilder) else str(x)
-        if length is None:
-            return StringBuilder(f"substring({self.expr},{fmt(pos)})")
-        return StringBuilder(f"substring({self.expr},{fmt(pos)},{fmt(length)})")
-
-    def tolower(self) -> "StringBuilder":
-        """Convert to lowercase."""
-        return StringBuilder(f"tolower({self.expr})")
-
-    def toupper(self) -> "StringBuilder":
-        """Convert to uppercase."""
-        return StringBuilder(f"toupper({self.expr})")
-
-    def trim(self) -> "StringBuilder":
-        """Trim whitespace."""
-        return StringBuilder(f"trim({self.expr})")
-
-    def concat(self, other: Union[str, StringBuilder]) -> "StringBuilder":
-        """Concatenate two strings."""
-        arg = other.expr if isinstance(other, StringBuilder) else f"'{other.replace("'","''")}'"
-        return StringBuilder(f"concat({self.expr},{arg})")
-
-    def __str__(self) -> str:
-        return self.expr
-
-    __repr__ = __str__
+# The singleton factory instance to be used for creating all field filters.
+F = _FieldFactory()

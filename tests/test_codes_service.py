@@ -1,10 +1,8 @@
 # tests/test_codes_service.py
 
 import pytest
-from requests import HTTPError
 
 from easy_acumatica import AcumaticaClient
-from easy_acumatica.sub_services.codes import CodesService
 from easy_acumatica.models.code_builder import (
     DeductionBenefitCodeBuilder,
     EarningTypeCodeBuilder,

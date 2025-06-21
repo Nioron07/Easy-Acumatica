@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Union, List, Dict
 
 from ..models.record_builder import RecordBuilder
-from ..models.filter_builder import QueryOptions
+from ..models.query_builder import QueryOptions
 from ..sub_services.contacts import _raise_with_detail   # reuse your shared helper
 
 if TYPE_CHECKING:                                       # pragma: no cover

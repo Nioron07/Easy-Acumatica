@@ -6,7 +6,8 @@ from requests import HTTPError
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.files import FilesService
 from easy_acumatica.sub_services.records import RecordsService
-from easy_acumatica.models.filter_builder import QueryOptions, Filter
+from easy_acumatica.models.filter_builder import Filter
+from easy_acumatica.models.query_builder import QueryOptions
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"
