@@ -6,7 +6,7 @@ from requests import HTTPError
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.files import FilesService
 from easy_acumatica.sub_services.records import RecordsService
-from easy_acumatica.models.filter_builder import Filter
+from easy_acumatica.models.filter_builder import F
 from easy_acumatica.models.query_builder import QueryOptions
 
 API_VERSION = "24.200.001"
@@ -143,6 +143,37 @@ def test_attach_file_error(requests_mock, files_svc, status):
 
 
 # -----------------------------------------------------------------------
+# delete_file
+# -----------------------------------------------------------------------
+
+def test_delete_file_success(requests_mock, files_svc):
+    """Tests successful file deletion (204 No Content)."""
+    requests_mock.delete(FILE_URL, status_code=204)
+
+    # This call should complete without raising an error
+    result = files_svc.delete_file(API_VERSION, FILE_ID)
+    assert result is None
+
+    # Verify that a DELETE request was made to the correct URL
+    deletes = [
+        req for req in requests_mock.request_history
+        if req.method == "DELETE" and req.url == FILE_URL
+    ]
+    assert deletes, "No DELETE request was made to the file endpoint"
+    last = deletes[-1]
+    assert last.headers["Accept"] == "application/json"
+
+def test_delete_file_not_found_error(requests_mock, files_svc):
+    """Tests that a 404 error during deletion raises a RuntimeError."""
+    requests_mock.delete(FILE_URL, status_code=404, text="File not found")
+
+    with pytest.raises(RuntimeError) as exc:
+        files_svc.delete_file(API_VERSION, FILE_ID)
+    
+    assert "404" in str(exc.value)
+    assert "File not found" in str(exc.value)
+
+# -----------------------------------------------------------------------
 # get_file_comments_by_key_field & by_id
 # -----------------------------------------------------------------------
 
@@ -178,4 +209,3 @@ def test_get_file_comments_by_id(monkeypatch, files_svc):
 
     comments = files_svc.get_file_comments_by_id(API_VERSION, "Bar", "REC123")
     assert comments == fake["files"]
-

@@ -1,14 +1,16 @@
 # services/records.py
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional, Union, List, Dict
+import time
+from typing import TYPE_CHECKING, Any, Optional, Union, List, Dict, Literal
 
 from ..models.record_builder import RecordBuilder
 from ..models.query_builder import QueryOptions
-from ..sub_services.contacts import _raise_with_detail   # reuse your shared helper
+from ..helpers import _raise_with_detail
 
-if TYPE_CHECKING:                                       # pragma: no cover
+if TYPE_CHECKING:
     from ..client import AcumaticaClient
+    import requests
 
 
 class RecordsService:
@@ -41,6 +43,8 @@ class RecordsService:
         record: Union[dict, RecordBuilder],
         *,
         options: Optional[QueryOptions] = None,
+        business_date: Optional[str] = None,
+        branch: Optional[str] = None,
     ) -> Any:
         """
         Create a new record (HTTP **PUT**) for *entity*.
@@ -57,6 +61,11 @@ class RecordsService:
         options : QueryOptions, optional
             Lets you specify ``$expand``, ``$select``, or ``$custom`` so
             the response includes exactly what you need.
+        business_date : optional 
+            A date string (e.g., "2024-01-01") to use as the business date 
+            for this transaction only.
+        branch : optional 
+            A branch name to use for this transaction only.
 
         Returns
         -------
@@ -66,9 +75,17 @@ class RecordsService:
         """
         if not self._client.persistent_login:
             self._client.login()
+        
         url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         params = options.to_params() if options else None
-        headers = {"If-None-Match": "*", "Accept": "application/json"}
+        headers = {"If-None-Match": "*", "Accept": "application/json", "Content-Type": "application/json"}
+        
+        # Add optional headers for business date and branch
+        if business_date:
+            headers["PX-CbApiBusinessDate"] = business_date
+        if branch:
+            headers["PX-CbApiBranch"] = branch
+
         body = record.build() if isinstance(record, RecordBuilder) else record
         resp = self._client._request(
             "put",
@@ -90,6 +107,8 @@ class RecordsService:
         record: Union[dict, RecordBuilder],
         *,
         options: Optional[QueryOptions] = None,
+        business_date: Optional[str] = None,
+        branch: Optional[str] = None,
     ) -> Any:
         """
         Update an existing record (HTTP **PUT**) for *entity*.
@@ -108,6 +127,10 @@ class RecordsService:
             ``$expand``, ``$select``, or ``$custom``.  
             *Remember*: every linked or detail entity you expect back must be
             listed in ``$expand``.
+        business_date : optional 
+            A date string to override the business date.    
+        branch : optional 
+            A branch name to override the current branch.
 
         Returns
         -------
@@ -116,9 +139,17 @@ class RecordsService:
         """
         if not self._client.persistent_login:
             self._client.login()
+
         url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         params = options.to_params() if options else None
-        headers = {"If-Match": "*", "Accept": "application/json"}
+        headers = {"If-Match": "*", "Accept": "application/json", "Content-Type": "application/json"}
+        
+        # Add optional headers for business date and branch
+        if business_date:
+            headers["PX-CbApiBusinessDate"] = business_date
+        if branch:
+            headers["PX-CbApiBranch"] = branch
+
         body = record.build() if isinstance(record, RecordBuilder) else record
         resp = self._client._request(
             "put",
@@ -132,7 +163,6 @@ class RecordsService:
             self._client.logout()
         return resp.json()
 
-
     # ------------------------------------------------------------------
     def get_record_by_key_field(
         self,
@@ -141,7 +171,7 @@ class RecordsService:
         key: str,
         value: str,
         options: Optional[QueryOptions] = None
-    ):
+    ) -> dict:
         """
         Retrieve a single record by its key fields from Acumatica ERP.
 
@@ -164,25 +194,6 @@ class RecordsService:
         Returns:
             dict:
                 The JSON‐decoded record returned by Acumatica.
-
-        Raises:
-            AcumaticaError:
-                If the HTTP response status is not 200, 
-                `_raise_with_detail` will raise with response details.
-
-        HTTP Status Codes:
-            200: Successful retrieval; JSON body contains the record.
-            401: Unauthorized – client is not authenticated.
-            403: Forbidden – insufficient rights to the entity/form.
-            429: Too Many Requests – license request limit exceeded.
-            500: Internal Server Error.
-
-        Example:
-            >>> opts = QueryOptions().select("OrderNbr", "Status").expand("Details")
-            >>> rec = client.get_record_by_key_field(
-            ...     "24.200.001", "SalesOrder", "SO", "000123", opts
-            ... )
-            >>> print(rec["OrderNbr"], rec["Status"])
         """
 
         if not self._client.persistent_login:
@@ -250,14 +261,13 @@ class RecordsService:
             self._client.logout()
         return resp.json()
 
-
     def get_record_by_id(
         self,
         api_version: str,
         entity: str,
         id: str,
         options: Optional[QueryOptions] = None
-    ):
+    ) -> dict:
         """
         Retrieve a single record by its id from Acumatica ERP.
 
@@ -278,27 +288,7 @@ class RecordsService:
         Returns:
             dict:
                 The JSON‐decoded record returned by Acumatica.
-
-        Raises:
-            AcumaticaError:
-                If the HTTP response status is not 200, 
-                `_raise_with_detail` will raise with response details.
-
-        HTTP Status Codes:
-            200: Successful retrieval; JSON body contains the record.
-            401: Unauthorized – client is not authenticated.
-            403: Forbidden – insufficient rights to the entity/form.
-            429: Too Many Requests – license request limit exceeded.
-            500: Internal Server Error.
-
-        Example:
-            >>> opts = QueryOptions().select("OrderNbr", "Status").expand("Details")
-            >>> rec = client.get_record_by_id(
-            ...     "24.200.001", "SalesOrder", "000012", opts
-            ... )
-            >>> print(rec["OrderNbr"], rec["Status"])
         """
-
         if not self._client.persistent_login:
             self._client.login()
         if options and options.filter:
@@ -333,30 +323,16 @@ class RecordsService:
         Sends a DELETE request to:
             {base_url}/entity/Default/{api_version}/{entity}/{key}/{value}
 
-        No query parameters or body are required.
-
         Args:
             api_version (str): Endpoint version, e.g. "24.200.001".
             entity (str): Top-level entity name, e.g. "SalesOrder".
             key (str): First key field’s value (e.g. order type "SO").
             value (str): Second key field’s value (e.g. order number "000123").
-
-        Returns:
-            None
-
-        Raises:
-            AcumaticaError (RuntimeError):
-                If the HTTP response status is not 204, with detailed error
-                text extracted by `_raise_with_detail`.
         """
         if not self._client.persistent_login:
             self._client.login()
 
-        url = (
-            f"{self._client.base_url}"
-            f"/entity/Default/{api_version}/{entity}/{key}/{value}"
-        )
-        # perform the DELETE; will raise on non-2xx
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{key}/{value}"
         resp = self._client._request(
             "delete",
             url,
@@ -367,8 +343,6 @@ class RecordsService:
 
         if not self._client.persistent_login:
             self._client.logout()
-        # DELETE returns 204 No Content on success; we return None
-
 
     # ------------------------------------------------------------------
     def delete_record_by_id(
@@ -383,24 +357,15 @@ class RecordsService:
         Sends a DELETE request to:
             {base_url}/entity/Default/{api_version}/{entity}/{record_id}
 
-        No query parameters or body are required.
-
         Args:
             api_version (str): Endpoint version, e.g. "24.200.001".
             entity (str): Top-level entity name, e.g. "SalesOrder".
             record_id (str): GUID of the record to remove.
-
-        Raises:
-            RuntimeError: If the HTTP response status is not 204,
-                          `_raise_with_detail` will raise with details.
         """
         if not self._client.persistent_login:
             self._client.login()
 
-        url = (
-            f"{self._client.base_url}"
-            f"/entity/Default/{api_version}/{entity}/{record_id}"
-        )
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{record_id}"
         resp = self._client._request(
             "delete",
             url,
@@ -411,4 +376,125 @@ class RecordsService:
 
         if not self._client.persistent_login:
             self._client.logout()
-        # on 204 No Content, simply return None
+    
+    # ------------------------------------------------------------------
+    def get_custom_field_schema(
+        self,
+        api_version: str,
+        entity: str
+    ) -> dict:
+        """
+        Retrieves the schema of custom fields for a given entity.
+
+        This includes user-defined fields and predefined fields not in the
+        standard contract. Sends a GET request to the $adHocSchema endpoint.
+
+        Args:
+            api_version (str): The contract API version, e.g., "24.200.001".
+            entity (str): The name of the entity, e.g., "StockItem".
+
+        Returns:
+            dict: The JSON schema describing the custom fields.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/$adHocSchema"
+        headers = {"Accept": "application/json"}
+        resp = self._client._request(
+            "get",
+            url,
+            headers=headers,
+            verify=self._client.verify_ssl,
+        )
+        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
+        return resp.json()
+
+    def request_report(
+        self,
+        report_entity: str,
+        endpoint_name: str,
+        endpoint_version: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        output_format: Literal["PDF", "HTML", "Excel"] = "PDF",
+        polling_interval_sec: int = 2,
+        timeout_sec: int = 120,
+    ) -> "requests.Response":
+        """
+        Initiates a report request and polls until the report is ready.
+
+        This method follows Acumatica's asynchronous report generation flow by
+        sending a POST to a specific report endpoint.
+
+        Args:
+            report_entity (str): The entity name of the report (e.g., "CashAccountSummary").
+            endpoint_name (str): The name of the custom endpoint for reports (e.g., "Report").
+            endpoint_version (str): The version of the custom endpoint (e.g., "0001").
+            parameters (dict, optional): Report parameters to send in the request body.
+            output_format (str, optional): "PDF", "HTML", or "Excel". Defaults to "PDF".
+            polling_interval_sec (int, optional): Seconds to wait between polls. Defaults to 2.
+            timeout_sec (int, optional): Maximum seconds to wait. Defaults to 120.
+
+        Returns:
+            requests.Response: The final response object containing the report content.
+        
+        Raises:
+            RuntimeError: If the report generation fails or times out.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+            
+        format_map = {
+            "PDF": "application/pdf",
+            "HTML": "text/html",
+            "Excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+
+        # 1. Initial POST to start report generation
+        url = f"{self._client.base_url}/entity/{endpoint_name}/{endpoint_version}/{report_entity}"
+        headers = {"Accept": format_map[output_format], "Content-Type": "application/json"}
+        
+        initial_resp = self._client._request(
+            "post",
+            url,
+            json=parameters or {},
+            headers=headers,
+            verify=self._client.verify_ssl,
+        )
+        
+        if initial_resp.status_code != 202:
+            raise RuntimeError(f"Expected status 202 to start report generation, but got {initial_resp.status_code}")
+
+        location_url = initial_resp.headers.get("Location")
+        if not location_url:
+            raise RuntimeError("Acumatica did not return a Location header for the report.")
+
+        # Ensure the location URL is absolute
+        if location_url.startswith("/"):
+            location_url = self._client.base_url + location_url
+
+        # 2. Poll the Location URL until the report is ready
+        start_time = time.time()
+        while time.time() - start_time < timeout_sec:
+            poll_resp = self._client._request(
+                "get",
+                location_url,
+                headers=headers, # Pass the same headers
+                verify=self._client.verify_ssl
+            )
+
+            if poll_resp.status_code == 200:
+                if not self._client.persistent_login:
+                    self._client.logout()
+                return poll_resp  # Success!
+            
+            if poll_resp.status_code != 202:
+                 _raise_with_detail(poll_resp) # Raise a detailed error for other failures
+
+            time.sleep(polling_interval_sec)
+
+        raise RuntimeError(f"Report generation timed out after {timeout_sec} seconds.")

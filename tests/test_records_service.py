@@ -15,11 +15,13 @@ BASE_PATH = f"/entity/Default/{API_VERSION}/{ENTITY}"
 
 
 class DummyResponse:
-    """Fake Response for stubbing _request."""
-    def __init__(self, status_code: int, json_body=None, text_body=None):
+    """Fake Response for stubbing requests."""
+    # Corrected __init__ to accept headers
+    def __init__(self, status_code: int, json_body=None, text_body=None, headers=None):
         self.status_code = status_code
         self._json = json_body
         self._text = text_body or ""
+        self.headers = headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -239,3 +241,89 @@ def test_get_record_by_id_http_error(monkeypatch, service):
     monkeypatch.setattr(service._client, "_request", fake_request)
     with pytest.raises(RuntimeError):
         service.get_record_by_id(API_VERSION, ENTITY, "000123")
+
+# -------------------------------------------------------------------------
+# SCHEMA AND REPORTING
+# -------------------------------------------------------------------------
+def test_get_custom_field_schema_success(monkeypatch, service):
+    schema = {"Field": {"type": "CustomString"}}
+    def fake_request(method, url, **kwargs):
+        assert url.endswith("/$adHocSchema")
+        return DummyResponse(200, schema)
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.get_custom_field_schema(API_VERSION, ENTITY) == schema
+
+def test_request_report_success(monkeypatch, service):
+    location_url = f"{BASE}/entity/Report/0001/report/PDF/some-guid"
+    
+    # Mock the two-stage response for reports
+    post_response = DummyResponse(202, headers={"Location": location_url})
+    get_response_pending = DummyResponse(202)
+    get_response_success = DummyResponse(200, text_body="report content")
+
+    call_count = 0
+    def fake_request(method, url, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1: # Initial POST
+            assert method == "post"
+            return post_response
+        if call_count == 2: # First GET (pending)
+            assert method == "get"
+            assert url == location_url
+            return get_response_pending
+        if call_count == 3: # Second GET (success)
+            assert method == "get"
+            return get_response_success
+        pytest.fail("Too many requests made")
+
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    response = service.request_report(
+        "MyReport", "Report", "0001", polling_interval_sec=0.1
+    )
+    assert response.status_code == 200
+    assert response._text == "report content"
+
+def test_request_report_timeout(monkeypatch, service):
+    location_url = f"{BASE}/entity/Report/0001/report/PDF/some-guid"
+    
+    # Always return 202 to simulate a report that never finishes
+    post_response = DummyResponse(202, headers={"Location": location_url})
+    get_response_pending = DummyResponse(202)
+
+    def fake_request(method, url, **kwargs):
+        if method == "post":
+            return post_response
+        return get_response_pending
+
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    with pytest.raises(RuntimeError, match="Report generation timed out"):
+        service.request_report(
+            "MyReport", "Report", "0001", timeout_sec=0.5, polling_interval_sec=0.1
+        )
+
+# -------------------------------------------------------------------------
+# DELETE RECORDS
+# -------------------------------------------------------------------------
+def test_delete_record_by_id_success(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        assert method == "delete"
+        assert url.endswith(f"{BASE_PATH}/some-guid")
+        return DummyResponse(204)
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.delete_record_by_id(API_VERSION, ENTITY, "some-guid") is None
+
+def test_delete_record_by_id_error(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        raise RuntimeError("HTTP 404 Not Found")
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    with pytest.raises(RuntimeError):
+        service.delete_record_by_id(API_VERSION, ENTITY, "bad-guid")
+
+def test_delete_record_by_key_field_success(monkeypatch, service):
+    def fake_request(method, url, **kwargs):
+        assert method == "delete"
+        assert url.endswith(f"{BASE_PATH}/Type/Number")
+        return DummyResponse(204)
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    assert service.delete_record_by_key_field(API_VERSION, ENTITY, "Type", "Number") is None

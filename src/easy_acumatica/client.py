@@ -37,6 +37,10 @@ from .sub_services.inquiries import InquiriesService
 from .sub_services.customers import CustomersService
 from .sub_services.codes import CodesService
 from .sub_services.files import FilesService
+from .sub_services.accounts import AccountService
+from .sub_services.transactions import TransactionsService
+from .sub_services.actions import ActionsService
+from .sub_services.activities import ActivitiesService
 from .helpers import _raise_with_detail
 
 __all__ = ["AcumaticaClient"]
@@ -130,6 +134,10 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.customers: CustomersService = CustomersService(self)
         self.codes: CodesService = CodesService(self)
         self.files: FilesService = FilesService(self)
+        self.accounts: AccountService = AccountService(self)
+        self.transactions: TransactionsService = TransactionsService(self)
+        self.actions: ActionsService = ActionsService(self)
+        self.activities: ActivitiesService = ActivitiesService(self)
 
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers

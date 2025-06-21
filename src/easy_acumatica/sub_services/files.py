@@ -232,3 +232,32 @@ class FilesService:
             api_version, entity, record_id, options=opts
         )
         return rec.get("files", [])
+    def delete_file(
+        self,
+        api_version: str,
+        file_id: str
+    ) -> None:
+        """
+        Deletes a file attachment using its unique file ID.
+
+        Sends a DELETE request to:
+            {base_url}/entity/Default/{api_version}/files/{file_id}
+
+        Args:
+            api_version: The contract API version (e.g., "24.200.001").
+            file_id: The GUID of the file to be deleted.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = f"{self._client.base_url}/entity/Default/{api_version}/files/{file_id}"
+        resp = self._client._request(
+            "delete",
+            url,
+            headers={"Accept": "application/json"},
+            verify=self._client.verify_ssl,
+        )
+        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
