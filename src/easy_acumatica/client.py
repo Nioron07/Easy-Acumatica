@@ -218,3 +218,27 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
                 return resp
             # re-raise any other error
             raise
+    def get_endpoint_info(self):
+        """
+        Retrieves the Acumatica build version and a list of all endpoints
+        and endpoint versions
+
+        Args:
+            None
+
+        Returns:
+            A dictionary where "version" contains Acumatica build information
+            and "endpoints" which is a list of dictionaries, where each dictionary is an endpoint.
+        """
+        if not self.persistent_login:
+            self.login()
+
+        url = f"{self.base_url}/entity"
+
+        resp = self._request("get", url, verify=self.verify_ssl)
+        _raise_with_detail(resp)
+
+        if not self.persistent_login:
+            self.logout()
+
+        return resp.json()
