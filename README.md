@@ -20,6 +20,10 @@ https://github.com/Nioron07/Easy-Acumatica/wiki
 
 https://pypi.org/project/easy-acumatica/
 
+## NPM
+
+See the NPM version [here](https://github.com/joebewon/Easy-Acumatica)
+
 ## License
 
 MIT-licensed (see [LICENSE](LICENSE) for details)
