@@ -43,6 +43,7 @@ from .sub_services.actions import ActionsService
 from .sub_services.activities import ActivitiesService
 from .sub_services.payments import PaymentsService
 from .sub_services.invoices import InvoicesService
+from .sub_services.employees import EmployeesService
 from .helpers import _raise_with_detail
 
 __all__ = ["AcumaticaClient"]
@@ -142,6 +143,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.activities: ActivitiesService = ActivitiesService(self)
         self.payments: PaymentsService = PaymentsService(self)
         self.invoices: InvoicesService = InvoicesService(self)
+        self.employees: EmployeesService = EmployeesService(self)
 
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers
