@@ -6,6 +6,8 @@ import requests
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.employees import EmployeesService
 from easy_acumatica.models.employee_builder import EmployeeBuilder
+from easy_acumatica.models.employee_payroll_class_builder import EmployeePayrollClassBuilder
+from easy_acumatica.models.employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 
@@ -120,3 +122,33 @@ def test_get_employees_error(monkeypatch, service):
 
     with pytest.raises(RuntimeError, match="Acumatica API error 500"):
         service.get_employees(API_VERSION)
+
+def test_create_employee_payroll_class_success(monkeypatch, service):
+    """Tests successful creation of an employee payroll class."""
+    builder = EmployeePayrollClassBuilder().employee_payroll_class_id("TESTCLASS")
+    expected_response = {"EmployeePayrollClassID": {"value": "TESTCLASS"}}
+
+    def fake_request(method, url, **kwargs):
+        assert method.lower() == "put"
+        assert url == f"{BASE}/entity/Default/{API_VERSION}/EmployeePayrollClass"
+        assert kwargs.get("json") == builder.to_body()
+        return DummyResponse(201, expected_response)
+
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    result = service.create_employee_payroll_class(API_VERSION, builder)
+    assert result == expected_response
+
+def test_update_employee_payroll_settings_success(monkeypatch, service):
+    """Tests successful update of employee payroll settings."""
+    builder = EmployeePayrollSettingsBuilder().employee_id("EP00000004")
+    expected_response = {"EmployeeID": {"value": "EP00000004"}}
+
+    def fake_request(method, url, **kwargs):
+        assert method.lower() == "put"
+        assert url == f"{BASE}/entity/Default/{API_VERSION}/EmployeePayrollSettings"
+        assert kwargs.get("json") == builder.to_body()
+        return DummyResponse(200, expected_response)
+
+    monkeypatch.setattr(service._client, "_request", fake_request)
+    result = service.update_employee_payroll_settings(API_VERSION, builder)
+    assert result == expected_response

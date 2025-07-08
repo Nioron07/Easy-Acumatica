@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..models.employee_builder import EmployeeBuilder
+from ..models.employee_payroll_class_builder import EmployeePayrollClassBuilder
+from ..models.employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
 from ..models.query_builder import QueryOptions
 from ..helpers import _raise_with_detail
 
@@ -104,6 +106,62 @@ class EmployeesService:
             params=params,
             headers=headers,
             verify=self._client.verify_ssl,
+        )
+        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
+        return resp.json()
+
+    def create_employee_payroll_class(self, api_version: str, builder: EmployeePayrollClassBuilder) -> Any:
+        """
+        Create a new employee payroll class.
+
+        Sends a PUT request to the /EmployeePayrollClass endpoint.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = f"{self._client.base_url}/entity/Default/{api_version}/EmployeePayrollClass"
+        params = {"$expand": "PayrollDefaults/WorkLocations,PTODefaults"}
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+        resp = self._client._request(
+            "put", url, params=params, json=builder.to_body(), headers=headers, verify=self._client.verify_ssl
+        )
+        _raise_with_detail(resp)
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
+        return resp.json()
+
+    def update_employee_payroll_settings(
+        self, api_version: str, builder: EmployeePayrollSettingsBuilder, expand_work_locations: bool = False, expand_employment_records: bool = False
+    ) -> Any:
+        """
+        Update employee payroll settings.
+
+        Sends a PUT request to the /EmployeePayrollSettings endpoint.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = f"{self._client.base_url}/entity/Default/{api_version}/EmployeePayrollSettings"
+        
+        expand_options = []
+        if expand_work_locations:
+            expand_options.append("WorkLocations/WorkLocationDetails")
+        if expand_employment_records:
+            expand_options.append("EmploymentRecords")
+        
+        params = {"$expand": ",".join(expand_options)} if expand_options else None
+        
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+        resp = self._client._request(
+            "put", url, params=params, json=builder.to_body(), headers=headers, verify=self._client.verify_ssl
         )
         _raise_with_detail(resp)
 
