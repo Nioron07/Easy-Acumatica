@@ -22,7 +22,7 @@ https://pypi.org/project/easy-acumatica/
 
 ## NPM
 
-See the NPM version [here](https://github.com/joebewon/Easy-Acumatica)
+Dont want to use Python? See the NPM version by joeBewon [here](https://github.com/joebewon/Easy-Acumatica)
 
 ## License
 
