@@ -55,6 +55,7 @@ from .sub_services.shipments import ShipmentsService
 from .sub_services.stock_items import StockItemsService
 from .sub_services.service_orders import ServiceOrdersService
 from .sub_services.purchase_orders import PurchaseOrdersService
+from .sub_services.purchase_receipts import PurchaseReceiptsService
 from .helpers import _raise_with_detail
 
 __all__ = ["AcumaticaClient"]
@@ -166,6 +167,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.stock_items: StockItemsService = StockItemsService(self)
         self.service_orders: ServiceOrdersService = ServiceOrdersService(self)
         self.purchase_orders: PurchaseOrdersService = PurchaseOrdersService(self)
+        self.purchase_receipts: PurchaseReceiptsService = PurchaseReceiptsService(self)
 
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers
