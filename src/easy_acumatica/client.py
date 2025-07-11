@@ -1,13 +1,13 @@
 """easy_acumatica.client
 ======================
 
-A lightweight wrapper around the **contract‑based REST API** of
+A lightweight wrapper around the **contract-based REST API** of
 Acumatica ERP.  The :class:`AcumaticaClient` class handles the entire
 session lifecycle:
 
 * opens a persistent :class:`requests.Session`;
 * logs in automatically when the object is created;
-* exposes typed *sub‑services* (for example, :pyattr:`contacts`);
+* exposes typed *sub-services* (for example, :pyattr:`contacts`);
 * guarantees a clean logout either explicitly via
   :pymeth:`logout` or implicitly on interpreter shutdown.
 
@@ -21,7 +21,7 @@ Usage example
 ...     tenant="Company",
 ...     branch="HQ")
 >>> contact = client.contacts.get_contacts("24.200.001")
->>> client.logout()  # optional – will also run automatically
+>>> client.logout()  # optional - will also run automatically
 """
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ from .sub_services.payments import PaymentsService
 from .sub_services.invoices import InvoicesService
 from .sub_services.employees import EmployeesService
 from .sub_services.leads import LeadsService
+from .sub_services.tax_categories import TaxCategoryService
 from .sub_services.ledgers import LedgersService
 from .sub_services.cases import CasesService
 from .sub_services.companies import CompaniesService
@@ -56,6 +57,9 @@ from .sub_services.stock_items import StockItemsService
 from .sub_services.service_orders import ServiceOrdersService
 from .sub_services.purchase_orders import PurchaseOrdersService
 from .sub_services.purchase_receipts import PurchaseReceiptsService
+from .sub_services.time_entries import TimeEntriesService
+from .sub_services.work_calendars import WorkCalendarsService
+from .sub_services.work_locations import WorkLocationsService
 from .sub_services.bills import BillsService
 from .sub_services.boms import BomsService
 from .sub_services.business_accounts import BusinessAccountsService
@@ -160,6 +164,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.invoices: InvoicesService = InvoicesService(self)
         self.employees: EmployeesService = EmployeesService(self)
         self.leads: LeadsService = LeadsService(self)
+        self.tax_categories: TaxCategoryService = TaxCategoryService(self)
         self.ledgers: LedgersService = LedgersService(self)
         self.cases: CasesService = CasesService(self)
         self.companies: CompaniesService = CompaniesService(self)
@@ -171,6 +176,9 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.service_orders: ServiceOrdersService = ServiceOrdersService(self)
         self.purchase_orders: PurchaseOrdersService = PurchaseOrdersService(self)
         self.purchase_receipts: PurchaseReceiptsService = PurchaseReceiptsService(self)
+        self.time_entries: TimeEntriesService = TimeEntriesService(self)
+        self.work_calendars: WorkCalendarsService = WorkCalendarsService(self)
+        self.work_locations: WorkLocationsService = WorkLocationsService(self)
         self.bills: BillsService = BillsService(self)
         self.boms: BomsService = BomsService(self)
         self.business_accounts: BusinessAccountsService = BusinessAccountsService(self)
@@ -199,7 +207,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
 
     # ------------------------------------------------------------------
     def logout(self) -> int:
-        """Log out and invalidate the server‑side session.
+        """Log out and invalidate the server-side session.
 
         This method is **idempotent**: calling it more than once is safe
         and will simply return HTTP 204 after the first successful call.
