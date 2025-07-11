@@ -30,3 +30,7 @@ Not using Python? See the NPM version by joeBewon [here](https://easyacumatica.c
 ## License
 
 MIT-licensed (see [LICENSE](LICENSE) for details)
+
+## Easy Acumatica-Chan says "Thanks for Downloading!"
+
+![Logo](assets/EA-Anime.png)

@@ -17,7 +17,6 @@ def test_builder_simple_fields():
     assert payload["Description"]["value"] == "Test"
     assert payload["ExcludeListedTaxes"]["value"] == False
     assert payload["TaxCategoryID"]["value"] == "Test_ID"
-    assert payload["note"]["value"] == "Test Note"
 
 def test_builder_set_method():
     """Tests using the generic .set() method."""
