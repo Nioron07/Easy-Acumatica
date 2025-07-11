@@ -1,13 +1,11 @@
-# tests/test_work_locations_service.py
-
 import pytest
 import requests
 
-from src.easy_acumatica.client import AcumaticaClient
-from src.easy_acumatica.sub_services.work_locations import WorkLocationsService
-from src.easy_acumatica.models.work_location_builder import WorkLocationBuilder
-from src.easy_acumatica.models.query_builder import QueryOptions
-from src.easy_acumatica.models.filter_builder import F
+from easy_acumatica.client import AcumaticaClient
+from easy_acumatica.sub_services.work_locations import WorkLocationsService
+from easy_acumatica.models.work_location_builder import WorkLocationBuilder
+from easy_acumatica.models.query_builder import QueryOptions
+from easy_acumatica.models.filter_builder import F
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"

@@ -1,7 +1,4 @@
-# tests/test_work_calendar_builder.py
-
-import pytest
-from src.easy_acumatica.models.work_calendar_builder import WorkCalendarBuilder
+from easy_acumatica.models.work_calendar_builder import WorkCalendarBuilder
 
 def test_builder_shortcut_methods():
     """Tests that the shortcut methods correctly set their respective fields."""

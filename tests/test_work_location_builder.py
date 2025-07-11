@@ -1,7 +1,4 @@
-# tests/test_work_location_builder.py
-
-import pytest
-from src.easy_acumatica.models.work_location_builder import WorkLocationBuilder
+from easy_acumatica.models.work_location_builder import WorkLocationBuilder
 
 def test_builder_all_fields():
     """Tests that all shortcut methods correctly set their respective fields."""
