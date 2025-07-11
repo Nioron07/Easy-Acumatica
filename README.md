@@ -6,7 +6,7 @@ Handles session management, login/logout, URL building, and OData query-string c
 ## Installation
 
 ```bash
-pip install easy_acumatica
+pip install easy-acumatica
 ```
 
 Supports Python 3.8+ and depends only on `requests`.
