@@ -13,7 +13,10 @@ Supports Python 3.8+ and depends only on `requests`.
 
 ## Documentation
 
-Full usage examples and API reference live in the GitHub Wiki:  
+Full usage examples and API reference can be found on our docs website:  
+https://easyacumatica.com/python
+
+Or on our Github Wiki:
 https://github.com/Nioron07/Easy-Acumatica/wiki
 
 ## PyPI
