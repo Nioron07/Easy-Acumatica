@@ -26,7 +26,7 @@ class TimeEntriesService:
 
     def get_time_entries(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -58,7 +58,10 @@ class TimeEntriesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/TimeEntry"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/TimeEntry"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/TimeEntry"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -82,7 +85,7 @@ class TimeEntriesService:
 
     def create_time_entry(
             self, 
-            api_version: str, 
+            api_version: Optional[str] = None, 
             builder: TimeEntryBuilder, 
             options: Optional[QueryOptions] = None
     ) -> Any:
@@ -100,7 +103,10 @@ class TimeEntriesService:
             "Content-Type": "application/json",
         }
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/TimeEntry"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/TimeEntry"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/TimeEntry"
 
         resp = self._client._request(
             "put", 

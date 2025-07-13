@@ -23,7 +23,7 @@ class WorkCalendarsService:
 
     def create_work_calendar(
             self, 
-            api_version: str, 
+            api_version: Optional[str] = None, 
             builder: WorkCalendarBuilder, 
             options: Optional[QueryOptions] = None
     ) -> Any:
@@ -41,7 +41,10 @@ class WorkCalendarsService:
             "Content-Type": "application/json",
         }
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkCalendar"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
 
         resp = self._client._request(
             "put", 
@@ -60,7 +63,7 @@ class WorkCalendarsService:
     
     def get_work_calendar(
             self, 
-            api_version: str, 
+            api_version: Optional[str] = None, 
             options: Optional[QueryOptions] = None
     ) -> Any: 
         """
@@ -78,7 +81,10 @@ class WorkCalendarsService:
             "Content-Type": "application/json",
         }
         params = options.to_params() if options else None
-        url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkCalendar"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
 
         resp = self._client._request(
             "get", 

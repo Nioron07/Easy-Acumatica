@@ -22,9 +22,9 @@ class InvoicesService:
 
     def create_invoice(
         self,
-        api_version: str,
         builder: InvoiceBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Create a new Invoice, potentially with overridden tax details.
@@ -48,7 +48,10 @@ class InvoicesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Invoice"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -72,9 +75,9 @@ class InvoicesService:
         
     def update_invoice(
         self,
-        api_version: str,
         builder: InvoiceBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Update an existing Invoice.
@@ -100,7 +103,10 @@ class InvoicesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Invoice"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -128,7 +134,7 @@ class InvoicesService:
 
     def get_invoices(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -151,7 +157,10 @@ class InvoicesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Invoice"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -171,10 +180,10 @@ class InvoicesService:
 
     def release_invoice(
         self,
-        api_version: str,
         note_id: str,
+        api_version: Optional[str] = None,
         polling_interval_sec: int = 2,
-        timeout_sec: int = 120,
+        timeout_sec: int = 120
     ) -> None:
         """
         Releases an AR Invoice, triggering the financial posting process.
@@ -200,7 +209,10 @@ class InvoicesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice/ReleaseInvoice"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Invoice/ReleaseInvoice"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Invoice/ReleaseInvoice"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         
         body = {

@@ -22,8 +22,8 @@ class PaymentsService:
 
     def create_payment(
         self,
-        api_version: str,
         builder: PaymentBuilder,
+        api_version: Optional[str] = None
     ) -> Any:
         """
         Create a new Payment via the contract-based API.
@@ -53,7 +53,10 @@ class PaymentsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Payment"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Payment"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Payment"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -75,10 +78,10 @@ class PaymentsService:
 
     def get_payment(
         self,
-        api_version: str,
         payment_type: str,
         reference_nbr: str,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Retrieve a single payment by its key fields (Type and Reference Number).
@@ -119,7 +122,10 @@ class PaymentsService:
                 "the key fields in the URL are the filter."
             )
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Payment/{payment_type}/{reference_nbr}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Payment/{payment_type}/{reference_nbr}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Payment/{payment_type}/{reference_nbr}"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -139,11 +145,11 @@ class PaymentsService:
 
     def release_payment(
         self,
-        api_version: str,
         payment_type: str,
         reference_nbr: str,
+        api_version: Optional[str] = None,
         polling_interval_sec: int = 2,
-        timeout_sec: int = 120,
+        timeout_sec: int = 120
     ) -> None:
         """
         Releases a payment, triggering the financial posting process.
@@ -172,7 +178,10 @@ class PaymentsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Payment/Release"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Payment/Release"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Payment/Release"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         
         body = {

@@ -60,15 +60,18 @@ class ContactsService:  # pylint: disable=too-few-public-methods
     # ------------------------------------------------------------------
     def get_contacts(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """Retrieve contacts, optionally filtered/expanded/selected."""
 
         if not self._client.persistent_login:
             self._client.login()
-
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
+        print(url)
         params = options.to_params() if options else None
 
         resp = self._client._request("get", url, params=params, verify=self._client.verify_ssl)
@@ -81,8 +84,8 @@ class ContactsService:  # pylint: disable=too-few-public-methods
     # ------------------------------------------------------------------
     def create_contact(
         self,
-        api_version: str,
         draft: ContactBuilder,
+        api_version: Optional[str] = None
     ) -> Any:
         """Create a new contact (lead) in Acumatica.
 
@@ -102,7 +105,10 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
         # _request will retry on 401 and raise on any other HTTP error
         resp = self._client._request(
             "put",
@@ -118,8 +124,8 @@ class ContactsService:  # pylint: disable=too-few-public-methods
     # ------------------------------------------------------------------
     def deactivate_contact(
         self,
-        api_version: str,
         filter_: Union[Filter, str, QueryOptions],
+        api_version: Optional[str] = None,
         *,
         active: bool = False,
     ) -> Any:
@@ -154,7 +160,10 @@ class ContactsService:  # pylint: disable=too-few-public-methods
             flt = filter_.build() if isinstance(filter_, Filter) else str(filter_)
             params = {"$filter": flt}
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
         payload = {"Active": {"value": bool(active)}}
 
         resp = self._client._request(
@@ -171,9 +180,9 @@ class ContactsService:  # pylint: disable=too-few-public-methods
     # ------------------------------------------------------------------
     def update_contact(
         self,
-        api_version: str,
         filter_: Union[Filter, str, QueryOptions],
         payload: Union[dict, ContactBuilder],
+        api_version: Optional[str] = None
     ) -> Any:
         """
         Update one-or-more contacts selected by an OData ``$filter``.
@@ -205,7 +214,10 @@ class ContactsService:  # pylint: disable=too-few-public-methods
             params = {"$filter": flt}
 
         body = payload.build() if isinstance(payload, ContactBuilder) else payload
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
 
         resp = self._client._request(
             "put",
@@ -221,7 +233,7 @@ class ContactsService:  # pylint: disable=too-few-public-methods
 
 
     # ------------------------------------------------------------------
-    def delete_contact(self, api_version: str, note_id: str) -> None:
+    def delete_contact(self, note_id: str, api_version: Optional[str] = None) -> None:
         """
         Permanently delete a contact.
 
@@ -241,7 +253,10 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Contact/{note_id}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact/{note_id}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact/{note_id}"
         # this will now automatically retry if we got a 401
         self._client._request("delete", url, verify=self._client.verify_ssl)
 
@@ -251,10 +266,10 @@ class ContactsService:  # pylint: disable=too-few-public-methods
     # ------------------------------------------------------------------
     def link_contact_to_customer(
         self,
-        api_version: str,
         contact_id: int,
         business_account: str,
-        payload: Optional[Union[dict, ContactBuilder]] = None,
+        api_version: Optional[str] = None,
+        payload: Optional[Union[dict, ContactBuilder]] = None
     ) -> Any:
         """
         Link an existing contact to a customer (business account).

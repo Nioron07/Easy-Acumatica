@@ -23,7 +23,7 @@ class BillsService:
 
     def create_bill(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: BillBuilder,
         options: Optional[QueryOptions] = None,
     ) -> Any:
@@ -49,7 +49,10 @@ class BillsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Bill"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Bill"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -73,7 +76,7 @@ class BillsService:
 
     def approve_bill(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         reference_nbr: str,
     ) -> None:
         """
@@ -94,14 +97,17 @@ class BillsService:
             "Content-Type": "application/json",
         }
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/Approve" 
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill/Approve"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/Approve" 
         self._client._request(
             "post", url, headers=headers, json=body, verify=self._client.verify_ssl,
         )
         
     def release_retainage(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         reference_nbr: str,
         parameters: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -133,7 +139,10 @@ class BillsService:
             "Content-Type": "application/json",
         }
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/ReleaseRetainage" 
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill/ReleaseRetainage"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/ReleaseRetainage" 
         self._client._request(
             "post", 
             url, 

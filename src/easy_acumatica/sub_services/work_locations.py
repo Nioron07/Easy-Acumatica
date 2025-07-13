@@ -21,7 +21,7 @@ class WorkLocationsService:
 
     def create_work_location(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: WorkLocationBuilder,
         options: Optional[QueryOptions] = None,
     ) -> Any:
@@ -35,7 +35,10 @@ class WorkLocationsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -59,7 +62,7 @@ class WorkLocationsService:
 
     def get_work_locations(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -68,7 +71,10 @@ class WorkLocationsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -89,7 +95,7 @@ class WorkLocationsService:
 
     def get_work_calendar(
             self, 
-            api_version: str, 
+            api_version: Optional[str] = None, 
             options: Optional[QueryOptions] = None
     ) -> Any: 
         """
@@ -107,7 +113,10 @@ class WorkLocationsService:
             "Content-Type": "application/json",
         }
         params = options.to_params() if options else None
-        url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
 
         resp = self._client._request(
             "get", 

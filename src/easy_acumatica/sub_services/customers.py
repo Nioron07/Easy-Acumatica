@@ -23,7 +23,7 @@ class CustomersService:
 
     def get_customers(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -76,7 +76,10 @@ class CustomersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         params = options.to_params() if options else None
 
         resp = self._client.session.get(
@@ -94,7 +97,7 @@ class CustomersService:
 
     def create_customer(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: CustomerBuilder,
     ) -> Any:
         """
@@ -115,7 +118,10 @@ class CustomersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -135,7 +141,7 @@ class CustomersService:
     
     def update_customer(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: CustomerBuilder,
         options: Optional[QueryOptions] = None,
     ) -> Any:
@@ -166,7 +172,10 @@ class CustomersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -187,7 +196,7 @@ class CustomersService:
     
     def update_customer_currency_overriding(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         customer_id: str,
         enable: bool,
         currency_rate_type: str = "SPOT"
@@ -219,7 +228,10 @@ class CustomersService:
             .to_body()
         )
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -239,7 +251,7 @@ class CustomersService:
     
     def get_shipping_contact(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         customer_id: str,
     ) -> Optional[dict[str, Any]]:
         """
@@ -263,7 +275,7 @@ class CustomersService:
     
     def assign_tax_zone(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         customer_id: str,
         tax_zone: str,
     ) -> Any:
@@ -284,7 +296,10 @@ class CustomersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         params = QueryOptions(select=["CustomerID", "TaxZone"]).to_params()
         body = (
             CustomerBuilder()

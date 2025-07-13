@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .records import RecordsService
 from ..helpers import _raise_with_detail
@@ -53,8 +53,8 @@ class FilesService:
     # ------------------------------------------------------------------
     def get_file(
         self,
-        api_version: str,
-        file_id: str
+        file_id: str,
+        api_version: Optional[str] = None
     ) -> bytes:
         """
         Retrieve a file attached to a record by its internal file ID.
@@ -175,10 +175,10 @@ class FilesService:
     # ------------------------------------------------------------------
     def get_file_comments_by_key_field(
         self,
-        api_version: str,
         entity: str,
         key: str,
-        value: str
+        value: str,
+        api_version: Optional[str] = None
     ) -> list[dict]:
         """
         Retrieve attached files and their comments for a record identified
@@ -206,9 +206,9 @@ class FilesService:
     # ------------------------------------------------------------------
     def get_file_comments_by_id(
         self,
-        api_version: str,
         entity: str,
-        record_id: str
+        record_id: str,
+        api_version: Optional[str] = None
     ) -> list[dict]:
         """
         Retrieve attached files and their comments for a record identified
@@ -234,8 +234,8 @@ class FilesService:
         return rec.get("files", [])
     def delete_file(
         self,
-        api_version: str,
-        file_id: str
+        file_id: str,
+        api_version: Optional[str] = None
     ) -> None:
         """
         Deletes a file attachment using its unique file ID.
@@ -250,7 +250,10 @@ class FilesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/files/{file_id}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/files/{file_id}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/files/{file_id}"
         resp = self._client._request(
             "delete",
             url,

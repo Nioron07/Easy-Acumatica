@@ -16,15 +16,18 @@ class TransactionsService:
     
     def get_ledger_transactions(
             self,
-            api_version: str,
             start_date: datetime,
             end_date: datetime,
+            api_version: Optional[str] = None,
             options: Optional[QueryOptions] = None,
             ):
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/AccountDetailsForPeriodInquiry"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/AccountDetailsForPeriodInquiry"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/AccountDetailsForPeriodInquiry"
 
         dates = {
             "FromPeriod": { "value": f"{start_date.month:02d}{start_date.year}" },

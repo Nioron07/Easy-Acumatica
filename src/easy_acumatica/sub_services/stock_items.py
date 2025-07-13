@@ -19,7 +19,7 @@ class StockItemsService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def get_stock_items(self, api_version: str, options: Optional[QueryOptions] = None) -> List[Dict[str, Any]]:
+    def get_stock_items(self, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> List[Dict[str, Any]]:
         """
         Retrieve a list of stock items.
 
@@ -28,7 +28,10 @@ class StockItemsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/StockItem"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/StockItem"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/StockItem"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -46,7 +49,7 @@ class StockItemsService:
 
         return resp.json()
 
-    def get_stock_item_by_id(self, api_version: str, inventory_id: str, options: Optional[QueryOptions] = None) -> Dict[str, Any]:
+    def get_stock_item_by_id(self, inventory_id: str, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Dict[str, Any]:
         """
         Retrieve a single stock item by its ID.
 
@@ -55,7 +58,10 @@ class StockItemsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/StockItem/{inventory_id}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/StockItem/{inventory_id}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/StockItem/{inventory_id}"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -73,7 +79,7 @@ class StockItemsService:
 
         return resp.json()
 
-    def create_stock_item(self, api_version: str, builder: StockItemBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def create_stock_item(self, builder: StockItemBuilder, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Any:
         """
         Create a new stock item.
 
@@ -82,7 +88,10 @@ class StockItemsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/StockItem"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/StockItem"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/StockItem"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -104,7 +113,7 @@ class StockItemsService:
 
         return resp.json()
 
-    def update_stock_item(self, api_version: str, builder: StockItemBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def update_stock_item(self, builder: StockItemBuilder, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Any:
         """
         Update an existing stock item.
 
@@ -112,7 +121,7 @@ class StockItemsService:
         """
         return self.create_stock_item(api_version, builder, options)
 
-    def get_stock_item_attachments(self, api_version: str, inventory_id: str) -> List[Dict[str, Any]]:
+    def get_stock_item_attachments(self, inventory_id: str, api_version: Optional[str] = None,) -> List[Dict[str, Any]]:
         """
         Retrieve the list of attachments for a stock item.
 

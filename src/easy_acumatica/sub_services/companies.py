@@ -1,7 +1,7 @@
 # src/easy_acumatica/sub_services/companies.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ..helpers import _raise_with_detail
 
@@ -17,7 +17,7 @@ class CompaniesService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def get_structure(self, api_version: str) -> List[Dict[str, Any]]:
+    def get_structure(self, api_version: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieve the companies' structure.
 
@@ -36,7 +36,10 @@ class CompaniesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/CompaniesStructure"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/CompaniesStructure"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/CompaniesStructure"
         params = {"$expand": "Results"}
         headers = {
             "Accept": "application/json",

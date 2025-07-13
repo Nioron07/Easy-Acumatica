@@ -19,7 +19,7 @@ class ShipmentsService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def get_shipments(self, api_version: str, options: Optional[QueryOptions] = None) -> List[Dict[str, Any]]:
+    def get_shipments(self, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> List[Dict[str, Any]]:
         """
         Retrieve a list of shipments.
 
@@ -28,7 +28,10 @@ class ShipmentsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Shipment"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -46,7 +49,7 @@ class ShipmentsService:
 
         return resp.json()
 
-    def create_shipment(self, api_version: str, builder: ShipmentBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def create_shipment(self, api_version: Optional[str] = None, builder: ShipmentBuilder, options: Optional[QueryOptions] = None) -> Any:
         """
         Create a new shipment.
 
@@ -55,7 +58,10 @@ class ShipmentsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Shipment"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -77,7 +83,7 @@ class ShipmentsService:
 
         return resp.json()
 
-    def update_shipment(self, api_version: str, builder: ShipmentBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def update_shipment(self, api_version: Optional[str] = None, builder: ShipmentBuilder, options: Optional[QueryOptions] = None) -> Any:
         """
         Update an existing shipment.
 
@@ -85,7 +91,7 @@ class ShipmentsService:
         """
         return self.create_shipment(api_version, builder, options)
 
-    def confirm_shipment(self, api_version: str, shipment_nbr: str) -> Any:
+    def confirm_shipment(self, api_version: Optional[str] = None, shipment_nbr: str) -> Any:
         """
         Confirm a shipment.
 
@@ -96,7 +102,7 @@ class ShipmentsService:
             api_version, "SalesOrder", "ConfirmShipment", entity
         )
 
-    def prepare_invoice(self, api_version: str, shipment_nbr: str) -> Any:
+    def prepare_invoice(self, api_version: Optional[str] = None, shipment_nbr: str) -> Any:
         """
         Prepare an invoice for a shipment.
 

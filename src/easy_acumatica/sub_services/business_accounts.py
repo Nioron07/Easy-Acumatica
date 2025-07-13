@@ -21,7 +21,7 @@ class BusinessAccountsService:
 
     def get_business_accounts(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -34,7 +34,10 @@ class BusinessAccountsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/BusinessAccount"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/BusinessAccount"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/BusinessAccount"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",

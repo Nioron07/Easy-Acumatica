@@ -18,7 +18,7 @@ class InquiriesService:
 
     def get_data_from_inquiry_form(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         inquiry: str,
         opts: InquiryBuilder
     ) -> List[Dict[str, Any]]:
@@ -59,7 +59,10 @@ class InquiriesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{inquiry}"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{inquiry}"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/{inquiry}"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",

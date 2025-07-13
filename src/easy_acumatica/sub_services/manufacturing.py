@@ -19,7 +19,7 @@ class ManufacturingService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def get_configuration_entry(self, api_version: str, configuration_id: str) -> Any:
+    def get_configuration_entry(self, api_version: Optional[str] = None, configuration_id: str) -> Any:
         """
         Retrieve a configuration entry by its ID.
 
@@ -58,7 +58,7 @@ class ManufacturingService:
 
         return resp.json()
 
-    def update_configuration_entry(self, api_version: str, builder: ConfigurationEntryBuilder) -> Any:
+    def update_configuration_entry(self, api_version: Optional[str] = None, builder: ConfigurationEntryBuilder) -> Any:
         """
         Update a configuration entry.
 

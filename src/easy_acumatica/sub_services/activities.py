@@ -22,18 +22,21 @@ class ActivitiesService:
 
     def _create_linked_activity(
         self,
-        api_version: str,
         related_entity_note_id: str,
         related_entity_type: str,
         summary: str,
         details: str,
-        activity_type: str = "M"
+        activity_type: str = "M",
+        api_version: Optional[str] = None
     ) -> Dict[str, Any]:
         """Internal helper to create an activity linked to any entity."""
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Activity"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Activity"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Activity"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -64,11 +67,11 @@ class ActivitiesService:
 
     def create_activity_linked_to_case(
         self,
-        api_version: str,
         case_note_id: str,
         summary: str,
         details: str,
-        activity_type: str = "M"
+        activity_type: str = "M",
+        api_version: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Creates a new activity and links it to a specific case.
@@ -94,11 +97,11 @@ class ActivitiesService:
 
     def create_activity_linked_to_customer(
         self,
-        api_version: str,
         customer_note_id: str,
         summary: str,
         details: str,
-        activity_type: str = "M"
+        activity_type: str = "M",
+        api_version: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Creates a new activity and links it to a specific customer.
@@ -124,11 +127,11 @@ class ActivitiesService:
 
     def create_activity_linked_to_lead(
         self,
-        api_version: str,
         lead_note_id: str,
         summary: str,
         details: str,
-        activity_type: str = "M"
+        activity_type: str = "M",
+        api_version: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Creates a new activity and links it to a specific lead.

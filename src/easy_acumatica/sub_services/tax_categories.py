@@ -21,7 +21,7 @@ class TaxCategoryService:
 
     def update_tax_category(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: TaxCategoryBuilder,
         options: Optional[QueryOptions] = None,
     ) -> Any:
@@ -45,7 +45,10 @@ class TaxCategoryService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/TaxCategory"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/TaxCategory"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/TaxCategory"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",

@@ -22,7 +22,7 @@ class InventoryService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def create_inventory_issue(self, api_version: str, builder: InventoryIssueBuilder) -> Any:
+    def create_inventory_issue(self, builder: InventoryIssueBuilder, api_version: Optional[str] = None) -> Any:
         """
         Create a new inventory issue.
 
@@ -31,7 +31,10 @@ class InventoryService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/InventoryIssue"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/InventoryIssue"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/InventoryIssue"
         params = {"$expand": "Details"}
         headers = {
             "Accept": "application/json",
@@ -82,10 +85,10 @@ class InventoryService:
 
     def release_inventory_issue(
         self,
-        api_version: str,
         reference_nbr: str,
+        api_version: Optional[str] = None,
         polling_interval_sec: int = 2,
-        timeout_sec: int = 120,
+        timeout_sec: int = 120
     ) -> None:
         """
         Releases an inventory issue.
@@ -95,7 +98,10 @@ class InventoryService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/InventoryIssue/ReleaseInventoryIssue"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/InventoryIssue/ReleaseInventoryIssue"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/InventoryIssue/ReleaseInventoryIssue"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         
         body = {
@@ -142,9 +148,9 @@ class InventoryService:
 
     def get_inventory_quantity_available(
         self,
-        api_version: str,
         inventory_id: str,
         last_modified_date_time: str,
+        api_version: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve the available quantity of an inventory item.
@@ -160,7 +166,7 @@ class InventoryService:
         response = self._client.inquiries.get_data_from_inquiry_form(api_version, "InventoryQuantityAvailable", opts)
         return response.get("Results", [])
 
-    def get_inventory_summary(self, api_version: str, inventory_id: str) -> List[Dict[str, Any]]:
+    def get_inventory_summary(self, inventory_id: str, api_version: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieve the summary information about an inventory item.
 
@@ -170,7 +176,7 @@ class InventoryService:
         response = self._client.inquiries.get_data_from_inquiry_form(api_version, "InventorySummaryInquiry", opts)
         return response.get("Results", [])
     
-    def update_item_warehouse_details(self, api_version: str, builder: ItemWarehouseBuilder) -> Any:
+    def update_item_warehouse_details(self, builder: ItemWarehouseBuilder, api_version: Optional[str] = None) -> Any:
         """
         Update item-warehouse details.
 
@@ -179,7 +185,10 @@ class InventoryService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/ItemWarehouse"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/ItemWarehouse"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/ItemWarehouse"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",

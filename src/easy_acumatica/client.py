@@ -183,6 +183,20 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.boms: BomsService = BomsService(self)
         self.business_accounts: BusinessAccountsService = BusinessAccountsService(self)
 
+        endpoint_info = self.get_endpoint_info()['endpoints']
+        self.endpoints = {}
+        for endpoint in endpoint_info:
+            if (endpoint['name'] not in self.endpoints):
+                self.endpoints[endpoint['name']] = endpoint
+            else:
+                curr_version = self.endpoints[endpoint['name']]['version']
+                new_version = endpoint['version']
+                if (new_version.split('.')[0] > curr_version.split('.')[0]):
+                    self.endpoints[endpoint['name']] = endpoint
+                elif (new_version.split('.')[1] > curr_version.split('.')[1]):
+                    self.endpoints[endpoint['name']] = endpoint
+                elif (new_version.split('.')[2] > curr_version.split('.')[2]):
+                    self.endpoints[endpoint['name']] = endpoint
     # ──────────────────────────────────────────────────────────────────
     # Session control helpers
     # ──────────────────────────────────────────────────────────────────

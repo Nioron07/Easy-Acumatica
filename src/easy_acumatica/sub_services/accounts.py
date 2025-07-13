@@ -24,9 +24,9 @@ class AccountService:
 
     def add_account_to_group(
         self,
-        api_version: str,
         accountCD: str,
-        groupID: str
+        groupID: str,
+        api_version: Optional[str] = None
     ) -> dict:
         """
         Assigns an existing GL Account to a specific Account Group.
@@ -42,7 +42,10 @@ class AccountService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Account"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Account"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Account"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -68,7 +71,7 @@ class AccountService:
 
     def get_accounts(
             self,
-            api_version: str,
+            api_version: Optional[str] = None,
             options: Optional[QueryOptions] = None,
         ) -> Any:
         """
@@ -88,7 +91,10 @@ class AccountService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Account"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Account"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Account"
         params = options.to_params() if options else None
 
         resp = self._client._request("get", url, params=params, verify=self._client.verify_ssl)
@@ -100,8 +106,8 @@ class AccountService:
     
     def remove_account_from_group(
         self,
-        api_version: str,
-        accountCD: str
+        accountCD: str,
+        api_version: Optional[str] = None
     ) -> dict:
         """
         Removes a GL Account from its currently assigned Account Group.
@@ -118,7 +124,10 @@ class AccountService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Account"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Account"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Account"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -144,9 +153,9 @@ class AccountService:
 
     def create_account_group(
         self,
-        api_version: str,
         group_id: str,
-        description: str
+        description: str,
+        api_version: Optional[str] = None
     ) -> dict:
         """
         Creates a new account group.
@@ -164,7 +173,10 @@ class AccountService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/AccountGroup"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/AccountGroup"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/AccountGroup"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -190,9 +202,9 @@ class AccountService:
 
     def set_default_account_for_group(
         self,
-        api_version: str,
         group_id: str,
-        account_id: str
+        account_id: str,
+        api_version: Optional[str] = None
     ) -> dict:
         """
         Specifies the default account for a given account group.
@@ -210,7 +222,10 @@ class AccountService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/AccountGroup"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/AccountGroup"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/AccountGroup"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",

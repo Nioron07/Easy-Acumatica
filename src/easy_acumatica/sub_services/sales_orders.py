@@ -19,7 +19,7 @@ class SalesOrdersService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def get_sales_orders(self, api_version: str, options: Optional[QueryOptions] = None) -> List[Dict[str, Any]]:
+    def get_sales_orders(self, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> List[Dict[str, Any]]:
         """
         Retrieve a list of sales orders.
 
@@ -28,7 +28,10 @@ class SalesOrdersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/SalesOrder"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/SalesOrder"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/SalesOrder"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -46,7 +49,7 @@ class SalesOrdersService:
 
         return resp.json()
 
-    def create_sales_order(self, api_version: str, builder: SalesOrderBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def create_sales_order(self, builder: SalesOrderBuilder, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Any:
         """
         Create a new sales order.
 
@@ -55,7 +58,10 @@ class SalesOrdersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/SalesOrder"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/SalesOrder"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/SalesOrder"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -77,7 +83,7 @@ class SalesOrdersService:
 
         return resp.json()
 
-    def update_sales_order(self, api_version: str, builder: SalesOrderBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def update_sales_order(self, builder: SalesOrderBuilder, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Any:
         """
         Update an existing sales order.
 
@@ -85,7 +91,7 @@ class SalesOrdersService:
         """
         return self.create_sales_order(api_version, builder, options)
 
-    def apply_discounts(self, api_version: str, order_type: str, order_nbr: str) -> Any:
+    def apply_discounts(self, order_type: str, order_nbr: str, api_version: Optional[str] = None,) -> Any:
         """
         Apply discounts to a sales order.
 
@@ -96,7 +102,7 @@ class SalesOrdersService:
             api_version, "SalesOrder", "AutoRecalculateDiscounts", entity
         )
 
-    def create_shipment(self, api_version: str, order_id: str, shipment_date: str, warehouse_id: str) -> Any:
+    def create_shipment(self, order_id: str, shipment_date: str, warehouse_id: str, api_version: Optional[str] = None,) -> Any:
         """
         Create a shipment from a sales order.
 

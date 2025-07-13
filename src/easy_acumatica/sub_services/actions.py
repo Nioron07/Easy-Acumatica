@@ -22,10 +22,10 @@ class ActionsService:
 
     def execute_action(
         self,
-        api_version: str,
         entity_name: str,
         action_name: str,
         entity: Union[dict, RecordBuilder],
+        api_version: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
         polling_interval_sec: int = 2,
         timeout_sec: int = 120,
@@ -51,7 +51,10 @@ class ActionsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity_name}/{action_name}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity_name}/{action_name}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity_name}/{action_name}"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
         # Format the entity and parameters into the required request body structure
@@ -67,13 +70,13 @@ class ActionsService:
 
     def execute_custom_action(
         self,
-        api_version: str,
         entity_name: str,
         action_name: str,
         entity: Union[dict, RecordBuilder],
         custom_parameters: Dict[str, Any],
         polling_interval_sec: int = 2,
         timeout_sec: int = 120,
+        api_version: Optional[str] = None
     ) -> None:
         """
         Executes a custom action that requires complex, nested parameters.
@@ -93,7 +96,10 @@ class ActionsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity_name}/{action_name}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity_name}/{action_name}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity_name}/{action_name}"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
         entity_payload = entity.build() if isinstance(entity, RecordBuilder) else entity

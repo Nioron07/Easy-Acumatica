@@ -38,9 +38,9 @@ class RecordsService:
     # ---------------------------------------------------------------
     def create_record(
         self,
-        api_version: str,
         entity: str,
         record: Union[dict, RecordBuilder],
+        api_version: Optional[str] = None,
         *,
         options: Optional[QueryOptions] = None,
         business_date: Optional[str] = None,
@@ -76,7 +76,10 @@ class RecordsService:
         if not self._client.persistent_login:
             self._client.login()
         
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         params = options.to_params() if options else None
         headers = {"If-None-Match": "*", "Accept": "application/json", "Content-Type": "application/json"}
         
@@ -102,9 +105,9 @@ class RecordsService:
     # ------------------------------------------------------------------
     def update_record(
         self,
-        api_version: str,
         entity: str,
         record: Union[dict, RecordBuilder],
+        api_version: Optional[str] = None,
         *,
         options: Optional[QueryOptions] = None,
         business_date: Optional[str] = None,
@@ -140,7 +143,10 @@ class RecordsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         params = options.to_params() if options else None
         headers = {"If-Match": "*", "Accept": "application/json", "Content-Type": "application/json"}
         
@@ -166,10 +172,10 @@ class RecordsService:
     # ------------------------------------------------------------------
     def get_record_by_key_field(
         self,
-        api_version: str,
         entity: str,
         key: str,
         value: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None
     ) -> dict:
         """
@@ -204,7 +210,10 @@ class RecordsService:
             )
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{key}/{value}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}/{key}/{value}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{key}/{value}"
         resp = self._client._request(
             "get",
             url,
@@ -218,9 +227,9 @@ class RecordsService:
 
     def get_records_by_filter(
         self,
-        api_version: str,
         entity: str,
         options: QueryOptions,
+        api_version: Optional[str] = None,
         show_archived: bool = False
     ) -> List[Dict[str, Any]]:
         """
@@ -249,7 +258,10 @@ class RecordsService:
         headers = {"Accept": "application/json"}
         if show_archived:
             headers["PX-ApiArchive"] = "SHOW"
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}"
         resp = self._client._request(
             "get",
             url,
@@ -263,9 +275,9 @@ class RecordsService:
 
     def get_record_by_id(
         self,
-        api_version: str,
         entity: str,
         id: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None
     ) -> dict:
         """
@@ -297,7 +309,10 @@ class RecordsService:
             )
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{id}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}/{id}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{id}"
         resp = self._client._request(
             "get",
             url,
@@ -312,10 +327,10 @@ class RecordsService:
     # ------------------------------------------------------------------
     def delete_record_by_key_field(
         self,
-        api_version: str,
         entity: str,
         key: str,
-        value: str
+        value: str,
+        api_version: Optional[str] = None,
     ) -> None:
         """
         Remove a record by its key fields.
@@ -332,7 +347,10 @@ class RecordsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{key}/{value}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}/{key}/{value}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{key}/{value}"
         resp = self._client._request(
             "delete",
             url,
@@ -347,9 +365,9 @@ class RecordsService:
     # ------------------------------------------------------------------
     def delete_record_by_id(
         self,
-        api_version: str,
         entity: str,
-        record_id: str
+        record_id: str,
+        api_version: Optional[str] = None,
     ) -> None:
         """
         Remove a record by its Acumatica session identifier (entity ID).
@@ -365,7 +383,10 @@ class RecordsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{record_id}"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}/{record_id}"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/{record_id}"
         resp = self._client._request(
             "delete",
             url,
@@ -380,8 +401,8 @@ class RecordsService:
     # ------------------------------------------------------------------
     def get_custom_field_schema(
         self,
-        api_version: str,
-        entity: str
+        entity: str,
+        api_version: Optional[str] = None,
     ) -> dict:
         """
         Retrieves the schema of custom fields for a given entity.
@@ -399,7 +420,10 @@ class RecordsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/$adHocSchema"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/{entity}/$adHocSchema"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/{entity}/$adHocSchema"
         headers = {"Accept": "application/json"}
         resp = self._client._request(
             "get",

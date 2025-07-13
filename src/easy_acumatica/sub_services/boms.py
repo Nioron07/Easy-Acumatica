@@ -16,7 +16,7 @@ class BomsService:
 
     def create_bom(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: BOMBuilder,
         options: Optional[QueryOptions] = None,
     ) -> dict:
@@ -52,7 +52,7 @@ class BomsService:
     
     def get_boms(
         self, 
-        api_version: str, 
+        api_version: Optional[str] = None, 
         bom_id: str = None, 
         revision: str = None, 
         options: Optional[QueryOptions] = None

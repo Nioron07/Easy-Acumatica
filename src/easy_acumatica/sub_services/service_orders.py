@@ -24,7 +24,7 @@ class ServiceOrdersService:
 
     def get_service_orders(
         self, 
-        api_version: str, 
+        api_version: Optional[str] = None, 
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -45,7 +45,10 @@ class ServiceOrdersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/ServiceOrder"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/ServiceOrder"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/ServiceOrder"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 

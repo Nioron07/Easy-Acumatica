@@ -81,7 +81,7 @@ class CodesService:
 
     def create_deduction_benefit_code(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: DeductionBenefitCodeBuilder
     ) -> Dict[str, Any]:
         """
@@ -117,7 +117,10 @@ class CodesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/DeductionBenefitCode"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/DeductionBenefitCode"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/DeductionBenefitCode"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -140,7 +143,7 @@ class CodesService:
 
     def create_earning_type_code(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: EarningTypeCodeBuilder
     ) -> Dict[str, Any]:
         """
@@ -174,7 +177,10 @@ class CodesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/EarningTypeCode"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/EarningTypeCode"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/EarningTypeCode"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -196,7 +202,7 @@ class CodesService:
 
     def create_payroll_wcc_code(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         builder: PayrollWCCCodeBuilder
     ) -> Dict[str, Any]:
         """
@@ -227,7 +233,10 @@ class CodesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/PayrollWCCCode"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PayrollWCCCode"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/PayrollWCCCode"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         payload = builder.build()
 

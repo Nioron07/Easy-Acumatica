@@ -1,7 +1,6 @@
 # src/easy_acumatica/sub_services/purchase_receipts.py
 
 from __future__ import annotations
-import time
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..models.purchase_receipt_builder import PurchaseReceiptBuilder
@@ -22,9 +21,9 @@ class PurchaseReceiptsService:
 
     def create(
         self,
-        api_version: str,
         builder: PurchaseReceiptBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Create a new Purchase Receipt.
@@ -48,7 +47,10 @@ class PurchaseReceiptsService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/PurchaseReceipt"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PurchaseReceipt"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/PurchaseReceipt"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -72,8 +74,8 @@ class PurchaseReceiptsService:
 
     def release_purchase_receipt(
         self,
-        api_version: str,
         id: str,
+        api_version: Optional[str] = None
     ) -> None:
         """
         Releases a purchase receipt, triggering the financial posting process.
@@ -97,7 +99,10 @@ class PurchaseReceiptsService:
             If the action fails or times out.
         """
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/PurchaseReceipt/ReleasePurchaseReceipt"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PurchaseReceipt/ReleasePurchaseReceipt"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/PurchaseReceipt/ReleasePurchaseReceipt"
         body = {
             "entity": {"id": id}
         }

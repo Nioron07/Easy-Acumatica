@@ -23,9 +23,9 @@ class EmployeesService:
 
     def create_employee(
         self,
-        api_version: str,
         builder: EmployeeBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Create a new Employee.
@@ -49,7 +49,10 @@ class EmployeesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Employee"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Employee"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Employee"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -73,7 +76,7 @@ class EmployeesService:
 
     def get_employees(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -96,7 +99,10 @@ class EmployeesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Employee"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Employee"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Employee"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -114,7 +120,7 @@ class EmployeesService:
 
         return resp.json()
 
-    def create_employee_payroll_class(self, api_version: str, builder: EmployeePayrollClassBuilder) -> Any:
+    def create_employee_payroll_class(self, builder: EmployeePayrollClassBuilder, api_version: Optional[str] = None) -> Any:
         """
         Create a new employee payroll class.
 
@@ -123,7 +129,10 @@ class EmployeesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/EmployeePayrollClass"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/EmployeePayrollClass"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/EmployeePayrollClass"
         params = {"$expand": "PayrollDefaults/WorkLocations,PTODefaults"}
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
@@ -138,7 +147,7 @@ class EmployeesService:
         return resp.json()
 
     def update_employee_payroll_settings(
-        self, api_version: str, builder: EmployeePayrollSettingsBuilder, expand_work_locations: bool = False, expand_employment_records: bool = False
+        self, builder: EmployeePayrollSettingsBuilder, api_version: Optional[str] = None, expand_work_locations: bool = False, expand_employment_records: bool = False
     ) -> Any:
         """
         Update employee payroll settings.
@@ -148,7 +157,10 @@ class EmployeesService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/EmployeePayrollSettings"
+        if api_version == None:
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/EmployeePayrollSettings"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/EmployeePayrollSettings"
         
         expand_options = []
         if expand_work_locations:

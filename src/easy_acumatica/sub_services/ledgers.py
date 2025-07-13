@@ -20,7 +20,7 @@ class LedgersService:
 
     def get_ledgers(
         self,
-        api_version: str,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -43,7 +43,10 @@ class LedgersService:
         if not self._client.persistent_login:
             self._client.login()
 
-        url = f"{self._client.base_url}/entity/Default/{api_version}/Ledger"
+        if api_version == None:
+    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Ledger"
+else:
+    url = f"{self._client.base_url}/entity/Default/{api_version}/Ledger"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
