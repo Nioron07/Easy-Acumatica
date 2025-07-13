@@ -46,9 +46,9 @@ class ServiceOrdersService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/ServiceOrder"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/ServiceOrder"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/ServiceOrder"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/ServiceOrder"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 

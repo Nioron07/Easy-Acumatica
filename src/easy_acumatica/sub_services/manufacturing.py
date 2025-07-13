@@ -1,7 +1,7 @@
 # src/easy_acumatica/sub_services/manufacturing.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..models.configuration_entry_builder import ConfigurationEntryBuilder
 from ..models.query_builder import QueryOptions
@@ -19,7 +19,7 @@ class ManufacturingService:
     def __init__(self, client: "AcumaticaClient") -> None:
         self._client = client
 
-    def get_configuration_entry(self, api_version: Optional[str] = None, configuration_id: str) -> Any:
+    def get_configuration_entry(self, configuration_id: str, api_version: Optional[str] = None) -> Any:
         """
         Retrieve a configuration entry by its ID.
 
@@ -58,7 +58,7 @@ class ManufacturingService:
 
         return resp.json()
 
-    def update_configuration_entry(self, api_version: Optional[str] = None, builder: ConfigurationEntryBuilder) -> Any:
+    def update_configuration_entry(self, builder: ConfigurationEntryBuilder, api_version: Optional[str] = None,) -> Any:
         """
         Update a configuration entry.
 

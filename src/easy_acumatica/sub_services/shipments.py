@@ -29,9 +29,9 @@ class ShipmentsService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Shipment"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Shipment"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -49,7 +49,7 @@ else:
 
         return resp.json()
 
-    def create_shipment(self, api_version: Optional[str] = None, builder: ShipmentBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def create_shipment(self, builder: ShipmentBuilder, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Any:
         """
         Create a new shipment.
 
@@ -59,9 +59,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Shipment"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Shipment"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Shipment"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -83,7 +83,7 @@ else:
 
         return resp.json()
 
-    def update_shipment(self, api_version: Optional[str] = None, builder: ShipmentBuilder, options: Optional[QueryOptions] = None) -> Any:
+    def update_shipment(self, builder: ShipmentBuilder, api_version: Optional[str] = None, options: Optional[QueryOptions] = None) -> Any:
         """
         Update an existing shipment.
 
@@ -91,7 +91,7 @@ else:
         """
         return self.create_shipment(api_version, builder, options)
 
-    def confirm_shipment(self, api_version: Optional[str] = None, shipment_nbr: str) -> Any:
+    def confirm_shipment(self, shipment_nbr: str, api_version: Optional[str] = None,) -> Any:
         """
         Confirm a shipment.
 
@@ -102,7 +102,7 @@ else:
             api_version, "SalesOrder", "ConfirmShipment", entity
         )
 
-    def prepare_invoice(self, api_version: Optional[str] = None, shipment_nbr: str) -> Any:
+    def prepare_invoice(self, shipment_nbr: str, api_version: Optional[str] = None) -> Any:
         """
         Prepare an invoice for a shipment.
 

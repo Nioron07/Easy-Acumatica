@@ -22,9 +22,9 @@ class WorkCalendarsService:
     
 
     def create_work_calendar(
-            self, 
-            api_version: Optional[str] = None, 
-            builder: WorkCalendarBuilder, 
+            self,
+            builder: WorkCalendarBuilder,
+            api_version: Optional[str] = None,
             options: Optional[QueryOptions] = None
     ) -> Any:
         """
@@ -42,9 +42,9 @@ class WorkCalendarsService:
         }
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkCalendar"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkCalendar"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
 
         resp = self._client._request(
             "put", 
@@ -82,9 +82,9 @@ else:
         }
         params = options.to_params() if options else None
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkCalendar"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkCalendar"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/WorkCalendar"
 
         resp = self._client._request(
             "get", 

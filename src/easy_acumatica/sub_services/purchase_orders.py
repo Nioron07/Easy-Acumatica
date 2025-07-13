@@ -19,8 +19,8 @@ class PurchaseOrdersService:
 
     def create_purchase_order(
         self,
-        api_version: Optional[str] = None,
         builder: PurchaseOrderBuilder,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -46,9 +46,9 @@ class PurchaseOrdersService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PurchaseOrder"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/PurchaseOrder"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PurchaseOrder"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/PurchaseOrder"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",

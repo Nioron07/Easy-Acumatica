@@ -44,9 +44,9 @@ class LedgersService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Ledger"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Ledger"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Ledger"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Ledger"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 

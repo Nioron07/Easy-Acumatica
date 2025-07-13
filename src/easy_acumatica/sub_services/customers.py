@@ -77,9 +77,9 @@ class CustomersService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         params = options.to_params() if options else None
 
         resp = self._client.session.get(
@@ -97,8 +97,8 @@ else:
 
     def create_customer(
         self,
-        api_version: Optional[str] = None,
         builder: CustomerBuilder,
+        api_version: Optional[str] = None,
     ) -> Any:
         """
         Create (or update) a Customer via the contract-based API.
@@ -119,9 +119,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -141,8 +141,8 @@ else:
     
     def update_customer(
         self,
-        api_version: Optional[str] = None,
         builder: CustomerBuilder,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -173,9 +173,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -196,9 +196,9 @@ else:
     
     def update_customer_currency_overriding(
         self,
-        api_version: Optional[str] = None,
         customer_id: str,
         enable: bool,
+        api_version: Optional[str] = None,
         currency_rate_type: str = "SPOT"
     ) -> Any:
         """
@@ -229,9 +229,9 @@ else:
         )
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -251,8 +251,8 @@ else:
     
     def get_shipping_contact(
         self,
-        api_version: Optional[str] = None,
         customer_id: str,
+        api_version: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
         """
         Retrieve the ShippingContact sub-object for a single customer.
@@ -275,9 +275,9 @@ else:
     
     def assign_tax_zone(
         self,
-        api_version: Optional[str] = None,
         customer_id: str,
         tax_zone: str,
+        api_version: Optional[str] = None,
     ) -> Any:
         """
         Assign a Tax Zone to a Customer.
@@ -297,9 +297,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Customer"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Customer"
         params = QueryOptions(select=["CustomerID", "TaxZone"]).to_params()
         body = (
             CustomerBuilder()

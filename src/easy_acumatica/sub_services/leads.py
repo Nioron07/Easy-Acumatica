@@ -21,8 +21,8 @@ class LeadsService:
 
     def create_lead(
         self,
-        api_version: Optional[str] = None,
         builder: LeadBuilder,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -48,9 +48,9 @@ class LeadsService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Lead"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Lead"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Lead"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Lead"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",

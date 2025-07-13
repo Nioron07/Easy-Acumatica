@@ -1,7 +1,7 @@
 # easy_acumatica/sub_services/codes.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ..helpers import _raise_with_detail
 from ..models.code_builder import (
@@ -81,8 +81,8 @@ class CodesService:
 
     def create_deduction_benefit_code(
         self,
+        builder: DeductionBenefitCodeBuilder,
         api_version: Optional[str] = None,
-        builder: DeductionBenefitCodeBuilder
     ) -> Dict[str, Any]:
         """
         Create a new Deduction/Benefit Code.
@@ -118,9 +118,9 @@ class CodesService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/DeductionBenefitCode"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/DeductionBenefitCode"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/DeductionBenefitCode"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/DeductionBenefitCode"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -143,8 +143,8 @@ else:
 
     def create_earning_type_code(
         self,
-        api_version: Optional[str] = None,
-        builder: EarningTypeCodeBuilder
+        builder: EarningTypeCodeBuilder,
+        api_version: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create a new Earning Type Code.
@@ -178,9 +178,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/EarningTypeCode"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/EarningTypeCode"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/EarningTypeCode"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/EarningTypeCode"
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -202,8 +202,8 @@ else:
 
     def create_payroll_wcc_code(
         self,
-        api_version: Optional[str] = None,
-        builder: PayrollWCCCodeBuilder
+        builder: PayrollWCCCodeBuilder,
+        api_version: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create a Workers’ Compensation Class Code.
@@ -234,9 +234,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PayrollWCCCode"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/PayrollWCCCode"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/PayrollWCCCode"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/PayrollWCCCode"
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         payload = builder.build()
 

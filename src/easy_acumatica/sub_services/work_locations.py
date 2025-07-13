@@ -21,8 +21,8 @@ class WorkLocationsService:
 
     def create_work_location(
         self,
-        api_version: Optional[str] = None,
         builder: WorkLocationBuilder,
+        api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
         """
@@ -36,9 +36,9 @@ class WorkLocationsService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -72,9 +72,9 @@ else:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
         params = options.to_params() if options else None
         headers = {"Accept": "application/json"}
 
@@ -114,9 +114,9 @@ else:
         }
         params = options.to_params() if options else None
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/WorkLocation"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/WorkLocation"
 
         resp = self._client._request(
             "get", 
