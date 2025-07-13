@@ -16,9 +16,9 @@ class BomsService:
 
     def create_bom(
         self,
-        api_version: Optional[str] = None,
         builder: BOMBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> dict:
         """
         Create a new BOM.

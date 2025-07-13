@@ -35,9 +35,9 @@ class BusinessAccountsService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/BusinessAccount"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/BusinessAccount"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/BusinessAccount"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/BusinessAccount"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",

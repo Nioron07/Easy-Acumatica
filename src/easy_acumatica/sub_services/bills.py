@@ -23,9 +23,9 @@ class BillsService:
 
     def create_bill(
         self,
-        api_version: Optional[str] = None,
         builder: BillBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Create a new Bill.
@@ -50,9 +50,9 @@ class BillsService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Bill"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Bill"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -76,8 +76,8 @@ else:
 
     def approve_bill(
         self,
-        api_version: Optional[str] = None,
         reference_nbr: str,
+        api_version: Optional[str] = None
     ) -> None:
         """
         Approve a bill.
@@ -98,18 +98,18 @@ else:
         }
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill/Approve"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/Approve" 
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill/Approve"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/Approve" 
         self._client._request(
             "post", url, headers=headers, json=body, verify=self._client.verify_ssl,
         )
         
     def release_retainage(
         self,
-        api_version: Optional[str] = None,
         reference_nbr: str,
-        parameters: Optional[Dict[str, Any]] = None,
+        api_version: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None
     ) -> None:
         """
         Release retainage for a bill.
@@ -140,9 +140,9 @@ else:
         }
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill/ReleaseRetainage"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/ReleaseRetainage" 
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Bill/ReleaseRetainage"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Bill/ReleaseRetainage" 
         self._client._request(
             "post", 
             url, 
