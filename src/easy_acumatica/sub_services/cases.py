@@ -21,9 +21,9 @@ class CasesService:
 
     def create_case(
         self,
-        api_version: Optional[str] = None,
         builder: CaseBuilder,
-        options: Optional[QueryOptions] = None,
+        api_version: Optional[str] = None,
+        options: Optional[QueryOptions] = None
     ) -> Any:
         """
         Create a new Case.
@@ -48,9 +48,9 @@ class CasesService:
             self._client.login()
 
         if api_version == None:
-    url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Case"
-else:
-    url = f"{self._client.base_url}/entity/Default/{api_version}/Case"
+            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Case"
+        else:
+            url = f"{self._client.base_url}/entity/Default/{api_version}/Case"
         params = options.to_params() if options else None
         headers = {
             "Accept": "application/json",
@@ -74,8 +74,8 @@ else:
 
     def link_case_to_another_case(
         self,
-        api_version: Optional[str] = None,
         builder: CaseBuilder,
+        api_version: Optional[str] = None
     ) -> Any:
         """
         Create a new case and link it to another case.
