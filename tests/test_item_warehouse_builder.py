@@ -1,7 +1,7 @@
 # tests/test_item_warehouse_builder.py
 
 import pytest
-from easy_acumatica.models.item_warehouse_builder import ItemWarehouseBuilder
+from easy_acumatica.builders.item_warehouse_builder import ItemWarehouseBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

@@ -1,7 +1,7 @@
 # tests/models/test_employee_builder.py
 
 import pytest
-from easy_acumatica.models.employee_builder import EmployeeBuilder
+from easy_acumatica.builders.employee_builder import EmployeeBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

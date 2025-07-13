@@ -1,8 +1,8 @@
 # tests/test_employee_payroll_builders.py
 
 import pytest
-from easy_acumatica.models.employee_payroll_class_builder import EmployeePayrollClassBuilder
-from easy_acumatica.models.employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
+from easy_acumatica.builders.employee_payroll_class_builder import EmployeePayrollClassBuilder
+from easy_acumatica.builders.employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
 
 def test_employee_payroll_class_builder():
     """Tests the EmployeePayrollClassBuilder."""

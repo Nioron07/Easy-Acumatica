@@ -4,11 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..core import BaseService
-from ..models import (
+from ..builders import (
     EmployeePayrollClassBuilder, 
-    EmployeePayrollSettingsBuilder, 
-    QueryOptions
+    EmployeePayrollSettingsBuilder
 )
+from ..odata import QueryOptions
 
 if TYPE_CHECKING:
     from ..client import AcumaticaClient

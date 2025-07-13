@@ -1,7 +1,7 @@
 # tests/test_time_entry_builder.py
 
 import pytest
-from easy_acumatica.models.time_entry_builder import TimeEntryBuilder
+from easy_acumatica.builders.time_entry_builder import TimeEntryBuilder
 
 def test_builder_all_shortcut_methods():
     """Tests that all shortcut methods correctly set their respective fields."""

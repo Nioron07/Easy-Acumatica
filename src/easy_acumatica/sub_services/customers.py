@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.query_builder import QueryOptions
-from ..models.filter_builder import F
-from ..models.customer_builder import CustomerBuilder
+from ..odata import QueryOptions
+from ..odata import F
+from ..builders.customer_builder import CustomerBuilder
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

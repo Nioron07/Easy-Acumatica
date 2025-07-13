@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from easy_acumatica.sub_services.customers import CustomersService
-from easy_acumatica.models.customer_builder import CustomerBuilder
+from easy_acumatica.builders.customer_builder import CustomerBuilder
 from easy_acumatica.models.filter_builder import F
 from easy_acumatica.models.query_builder import QueryOptions
 

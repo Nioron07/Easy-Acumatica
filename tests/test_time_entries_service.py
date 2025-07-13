@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.time_entries import TimeEntriesService
-from easy_acumatica.models.time_entry_builder import TimeEntryBuilder
+from easy_acumatica.builders.time_entry_builder import TimeEntryBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

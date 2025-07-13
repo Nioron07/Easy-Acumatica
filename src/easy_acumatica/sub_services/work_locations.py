@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.work_location_builder import WorkLocationBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.work_location_builder import WorkLocationBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

@@ -1,5 +1,5 @@
 import pytest
-from easy_acumatica.models.bill_builder import BillBuilder
+from easy_acumatica.builders.bill_builder import BillBuilder
 
 def test_builder_simple_fields():
     builder = (

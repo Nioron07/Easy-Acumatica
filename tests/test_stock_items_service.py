@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.stock_items import StockItemsService
-from easy_acumatica.models.stock_item_builder import StockItemBuilder
+from easy_acumatica.builders.stock_item_builder import StockItemBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

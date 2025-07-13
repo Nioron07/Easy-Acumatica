@@ -4,8 +4,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.invoice_builder import InvoiceBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.invoice_builder import InvoiceBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

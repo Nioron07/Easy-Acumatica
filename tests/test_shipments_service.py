@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.shipments import ShipmentsService
-from easy_acumatica.models.shipment_builder import ShipmentBuilder
+from easy_acumatica.builders.shipment_builder import ShipmentBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

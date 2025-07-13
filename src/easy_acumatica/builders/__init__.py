@@ -9,12 +9,10 @@ from .code_builder import (
     PayrollWCCCodeBuilder,
 )
 from .configuration_entry_builder import ConfigurationEntryBuilder
-from .contact_builder import Contact, Address, Attribute
 from .customer_builder import CustomerBuilder
 from .employee_builder import EmployeeBuilder
 from .employee_payroll_class_builder import EmployeePayrollClassBuilder
 from .employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
-from .filter_builder import F, Filter
 from .inquiry_builder import InquiryBuilder
 from .inventory_issue_builder import InventoryIssueBuilder
 from .invoice_builder import InvoiceBuilder
@@ -23,7 +21,6 @@ from .lead_builder import LeadBuilder
 from .payment_builder import PaymentBuilder
 from .purchase_order_builder import PurchaseOrderBuilder
 from .purchase_receipt_builder import PurchaseReceiptBuilder
-from .query_builder import QueryOptions, CustomField
 from .record_builder import RecordBuilder
 from .sales_order_builder import SalesOrderBuilder
 from .shipment_builder import ShipmentBuilder
@@ -34,22 +31,16 @@ from .work_calendar_builder import WorkCalendarBuilder
 from .work_location_builder import WorkLocationBuilder
 
 __all__ = [
-    "Attribute",
-    "Address"
     "BillBuilder",
     "BOMBuilder",
     "CaseBuilder",
     "ConfigurationEntryBuilder",
-    "Contact",
-    "CustomField",
     "CustomerBuilder",
     "DeductionBenefitCodeBuilder",
     "EarningTypeCodeBuilder",
     "EmployeeBuilder",
     "EmployeePayrollClassBuilder",
     "EmployeePayrollSettingsBuilder",
-    "F",
-    "Filter",
     "InquiryBuilder",
     "InventoryIssueBuilder",
     "InvoiceBuilder",
@@ -59,7 +50,6 @@ __all__ = [
     "PaymentBuilder",
     "PurchaseOrderBuilder",
     "PurchaseReceiptBuilder",
-    "QueryOptions",
     "RecordBuilder",
     "SalesOrderBuilder",
     "ShipmentBuilder",

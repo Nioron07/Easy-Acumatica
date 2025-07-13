@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..core import BaseService # Import the new base class
-from ..models.employee_builder import EmployeeBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.employee_builder import EmployeeBuilder
+from ..odata import QueryOptions
 
 if TYPE_CHECKING:
     from ..client import AcumaticaClient

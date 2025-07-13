@@ -1,7 +1,7 @@
 # tests/models/test_lead_builder.py
 
 import pytest
-from easy_acumatica.models.lead_builder import LeadBuilder
+from easy_acumatica.builders.lead_builder import LeadBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

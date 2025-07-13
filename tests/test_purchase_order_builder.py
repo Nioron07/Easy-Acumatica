@@ -1,7 +1,7 @@
 # tests/test_purchase_order_builder.py
 
 import pytest
-from easy_acumatica.models.purchase_order_builder import PurchaseOrderBuilder
+from easy_acumatica.builders.purchase_order_builder import PurchaseOrderBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

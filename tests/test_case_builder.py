@@ -1,7 +1,7 @@
 # tests/test_case_builder.py
 
 import pytest
-from easy_acumatica.models.case_builder import CaseBuilder
+from easy_acumatica.builders.case_builder import CaseBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

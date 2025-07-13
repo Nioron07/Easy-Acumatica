@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.case_builder import CaseBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.case_builder import CaseBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

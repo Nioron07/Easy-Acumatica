@@ -1,7 +1,7 @@
 # tests/models/tax_category_builder.py
 
 import pytest
-from easy_acumatica.models.tax_category_builder import TaxCategoryBuilder
+from easy_acumatica.builders.tax_category_builder import TaxCategoryBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

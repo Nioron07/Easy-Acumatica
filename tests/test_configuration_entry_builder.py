@@ -1,7 +1,7 @@
 # tests/test_configuration_entry_builder.py
 
 import pytest
-from easy_acumatica.models.configuration_entry_builder import ConfigurationEntryBuilder
+from easy_acumatica.builders.configuration_entry_builder import ConfigurationEntryBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

@@ -1,6 +1,6 @@
 # tests/test_code_builders.py
 
-from easy_acumatica.models.code_builder import (
+from easy_acumatica.builders.code_builder import (
     DeductionBenefitCodeBuilder,
     EarningTypeCodeBuilder,
     PayrollWCCCodeBuilder,

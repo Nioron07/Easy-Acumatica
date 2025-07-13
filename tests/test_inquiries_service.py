@@ -8,7 +8,7 @@ import pytest
 from requests import Response
 
 from easy_acumatica.sub_services.inquiries import InquiriesService
-from easy_acumatica.models.inquiry_builder import InquiryBuilder
+from easy_acumatica.builders.inquiry_builder import InquiryBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 
 

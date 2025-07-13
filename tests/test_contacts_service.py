@@ -6,7 +6,7 @@ import requests
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.models.filter_builder import F
 from easy_acumatica.models.query_builder import QueryOptions
-from easy_acumatica.models.contact_builder import ContactBuilder
+from easy_acumatica.builders.contact_builder import ContactBuilder
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"

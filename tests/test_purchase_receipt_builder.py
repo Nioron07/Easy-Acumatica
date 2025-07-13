@@ -1,5 +1,5 @@
 import pytest
-from easy_acumatica.models.purchase_receipt_builder import PurchaseReceiptBuilder
+from easy_acumatica.builders.purchase_receipt_builder import PurchaseReceiptBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

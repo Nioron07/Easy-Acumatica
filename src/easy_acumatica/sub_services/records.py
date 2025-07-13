@@ -4,8 +4,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Optional, Union, List, Dict, Literal
 
-from ..models.record_builder import RecordBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.record_builder import RecordBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

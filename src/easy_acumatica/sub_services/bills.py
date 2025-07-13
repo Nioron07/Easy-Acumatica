@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Dict
 
-from ..models.bill_builder import BillBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.bill_builder import BillBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 import json

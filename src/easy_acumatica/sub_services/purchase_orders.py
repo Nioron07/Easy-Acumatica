@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from ..models.query_builder import QueryOptions
-from ..models.purchase_order_builder import PurchaseOrderBuilder
+from ..odata import QueryOptions
+from ..builders.purchase_order_builder import PurchaseOrderBuilder
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

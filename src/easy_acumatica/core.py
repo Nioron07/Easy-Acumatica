@@ -1,12 +1,11 @@
 # src/easy_acumatica/core.py
 
 from __future__ import annotations
-import copy
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .helpers import _raise_with_detail
-from .models.query_builder import QueryOptions
+from .odata import QueryOptions
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
@@ -19,11 +18,7 @@ class BaseDataClassModel:
     def to_acumatica_payload(self) -> Dict[str, Any]:
         """
         Converts the dataclass instance into the JSON format required
-        by the Acumatica API, where each value is wrapped in a dict,
-        e.g., {"value": ...}.
-
-        It intelligently handles nested dataclasses and lists of
-        dataclasses.
+        by the Acumatica API.
         """
         if not is_dataclass(self):
             raise TypeError("to_acumatica_payload can only be called on a dataclass instance.")
@@ -34,14 +29,20 @@ class BaseDataClassModel:
             if value is None:
                 continue
 
-            # Convert nested dataclasses recursively
-            if isinstance(value, BaseDataClassModel):
+            # --- THIS IS THE CORE FIX ---
+            # Correctly handle lists vs. other types.
+            if isinstance(value, list):
+                # For lists, serialize each item but do not wrap the list itself in {"value": ...}
+                if value and isinstance(value[0], BaseDataClassModel):
+                    payload[f.name] = [item.to_acumatica_payload() for item in value]
+                else:
+                    # If it's a list of simple types (though less common in this API)
+                    payload[f.name] = value
+            elif isinstance(value, BaseDataClassModel):
+                # For nested dataclasses, recurse
                 payload[f.name] = value.to_acumatica_payload()
-            # Convert lists of dataclasses
-            elif isinstance(value, list) and value and isinstance(value[0], BaseDataClassModel):
-                payload[f.name] = [item.to_acumatica_payload() for item in value]
-            # Handle simple values
             else:
+                # For all other simple types, wrap in {"value": ...}
                 payload[f.name] = {"value": value}
         
         return payload
@@ -68,7 +69,7 @@ class BaseService:
             raise ValueError(f"API version for endpoint '{self.endpoint_name}' is not available.")
         return f"{self._client.base_url}/entity/{self.endpoint_name}/{version}/{self.entity_name}"
 
-    def _get_schema(self, entity_id: str, api_version: Optional[str] = None) -> Any:
+    def _get_schema(self, api_version: Optional[str] = None) -> Any:
         """
         Gets the $adHocSchema of the current service
         """
@@ -141,3 +142,12 @@ class BaseService:
             
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         return self._request("post", url, json=body, headers=headers, verify=self._client.verify_ssl)
+    
+    def _delete(self, entity_id: str, api_version: Optional[str] = None) -> None:
+        """
+        Performs a DELETE request for a specific entity ID.
+        """
+        url = f"{self._get_url(api_version)}/{entity_id}"
+        # We call _request and expect a 204 No Content on success,
+        # which will return None. We don't need to do anything with the response.
+        self._request("delete", url, verify=self._client.verify_ssl)

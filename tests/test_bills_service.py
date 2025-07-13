@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 from easy_acumatica.sub_services.bills import BillsService
-from easy_acumatica.models.bill_builder import BillBuilder
+from easy_acumatica.builders.bill_builder import BillBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 
 

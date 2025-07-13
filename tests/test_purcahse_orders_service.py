@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.purchase_orders import PurchaseOrdersService
-from easy_acumatica.models.purchase_order_builder import PurchaseOrderBuilder
+from easy_acumatica.builders.purchase_order_builder import PurchaseOrderBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 
 API_VERSION = "24.200.001"

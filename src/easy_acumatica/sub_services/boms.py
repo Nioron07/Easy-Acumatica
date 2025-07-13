@@ -1,8 +1,8 @@
 # src/easy_acumatica/sub_services/boms.py
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from ..models.bom_builder import BOMBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.bom_builder import BOMBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

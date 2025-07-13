@@ -6,7 +6,7 @@ import time
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.purchase_receipts import PurchaseReceiptsService
-from easy_acumatica.models.purchase_receipt_builder import PurchaseReceiptBuilder
+from easy_acumatica.builders.purchase_receipt_builder import PurchaseReceiptBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.sub_services.actions import ActionsService
 

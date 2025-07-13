@@ -1,7 +1,7 @@
 # tests/test_inventory_issue_builder.py
 
 import pytest
-from easy_acumatica.models.inventory_issue_builder import InventoryIssueBuilder
+from easy_acumatica.builders.inventory_issue_builder import InventoryIssueBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

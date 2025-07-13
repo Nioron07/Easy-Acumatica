@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 from easy_acumatica.sub_services.boms import BomsService
-from easy_acumatica.models.bom_builder import BOMBuilder
+from easy_acumatica.builders.bom_builder import BOMBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 
 

@@ -4,7 +4,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.accounts import AccountService
-from easy_acumatica.models import F, QueryOptions
+from easy_acumatica.builders import F, QueryOptions
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"

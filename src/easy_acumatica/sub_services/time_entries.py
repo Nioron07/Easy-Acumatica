@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.query_builder import QueryOptions
-from ..models.time_entry_builder import TimeEntryBuilder
+from ..odata import QueryOptions
+from ..builders.time_entry_builder import TimeEntryBuilder
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

@@ -6,7 +6,7 @@ import time
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.payments import PaymentsService
-from easy_acumatica.models.payment_builder import PaymentBuilder
+from easy_acumatica.builders.payment_builder import PaymentBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

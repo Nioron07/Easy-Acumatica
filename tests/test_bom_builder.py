@@ -1,5 +1,5 @@
 import pytest
-from easy_acumatica.models.bom_builder import BOMBuilder
+from easy_acumatica.builders.bom_builder import BOMBuilder
 
 def test_builder_sets_simple_fields():
     builder = (

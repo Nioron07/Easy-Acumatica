@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.manufacturing import ManufacturingService
-from easy_acumatica.models.configuration_entry_builder import ConfigurationEntryBuilder
+from easy_acumatica.builders.configuration_entry_builder import ConfigurationEntryBuilder
 
 API_VERSION = "25.100.001"
 BASE = "https://fake"

@@ -4,9 +4,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import time
 
-from ..models.inventory_issue_builder import InventoryIssueBuilder
-from ..models.inquiry_builder import InquiryBuilder
-from ..models.item_warehouse_builder import ItemWarehouseBuilder
+from ..builders.inventory_issue_builder import InventoryIssueBuilder
+from ..builders.inquiry_builder import InquiryBuilder
+from ..builders.item_warehouse_builder import ItemWarehouseBuilder
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

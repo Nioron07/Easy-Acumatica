@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.tax_categories import TaxCategoryService
-from easy_acumatica.models.tax_category_builder import TaxCategoryBuilder
+from easy_acumatica.builders.tax_category_builder import TaxCategoryBuilder
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"

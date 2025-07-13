@@ -5,9 +5,9 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.employees import EmployeesService
-from easy_acumatica.models.employee_builder import EmployeeBuilder
-from easy_acumatica.models.employee_payroll_class_builder import EmployeePayrollClassBuilder
-from easy_acumatica.models.employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
+from easy_acumatica.builders.employee_builder import EmployeeBuilder
+from easy_acumatica.builders.employee_payroll_class_builder import EmployeePayrollClassBuilder
+from easy_acumatica.builders.employee_payroll_settings_builder import EmployeePayrollSettingsBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

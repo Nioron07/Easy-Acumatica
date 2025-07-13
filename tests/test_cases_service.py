@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.cases import CasesService
-from easy_acumatica.models.case_builder import CaseBuilder
+from easy_acumatica.builders.case_builder import CaseBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 
 API_VERSION = "24.200.001"

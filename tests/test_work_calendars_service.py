@@ -3,7 +3,7 @@ import requests
 
 from easy_acumatica.client import AcumaticaClient
 from easy_acumatica.sub_services.work_calendars import WorkCalendarsService
-from easy_acumatica.models.work_calendar_builder import WorkCalendarBuilder
+from easy_acumatica.builders.work_calendar_builder import WorkCalendarBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

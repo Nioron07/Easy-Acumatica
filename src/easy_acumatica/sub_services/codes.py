@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ..helpers import _raise_with_detail
-from ..models.code_builder import (
+from ..builders.code_builder import (
     DeductionBenefitCodeBuilder,
     EarningTypeCodeBuilder,
     PayrollWCCCodeBuilder,

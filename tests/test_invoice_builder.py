@@ -6,7 +6,7 @@ import time
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.invoices import InvoicesService
-from easy_acumatica.models.invoice_builder import InvoiceBuilder
+from easy_acumatica.builders.invoice_builder import InvoiceBuilder
 from easy_acumatica.models.query_builder import QueryOptions, CustomField
 from easy_acumatica.models.filter_builder import F
 

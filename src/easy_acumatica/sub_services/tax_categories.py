@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.tax_category_builder import TaxCategoryBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.tax_category_builder import TaxCategoryBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

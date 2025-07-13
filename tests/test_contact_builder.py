@@ -3,7 +3,7 @@
 Unit tests for easy_acumatica.models.contact_builder
 """
 
-from easy_acumatica.models.contact_builder import Attribute, ContactBuilder
+from easy_acumatica.builders.contact_builder import Attribute, ContactBuilder
 
 
 # ---------------------------------------------------------------------------

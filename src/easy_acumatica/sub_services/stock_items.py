@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from ..models.stock_item_builder import StockItemBuilder
-from ..models.query_builder import QueryOptions
+from ..builders.stock_item_builder import StockItemBuilder
+from ..odata import QueryOptions
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from easy_acumatica.models.customer_builder import CustomerBuilder
+from easy_acumatica.builders.customer_builder import CustomerBuilder
 
 
 def test_set_arbitrary_field():

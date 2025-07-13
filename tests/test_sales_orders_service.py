@@ -5,7 +5,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.sales_orders import SalesOrdersService
-from easy_acumatica.models.sales_order_builder import SalesOrderBuilder
+from easy_acumatica.builders.sales_order_builder import SalesOrderBuilder
 from easy_acumatica.models.query_builder import QueryOptions
 from easy_acumatica.models.filter_builder import F
 

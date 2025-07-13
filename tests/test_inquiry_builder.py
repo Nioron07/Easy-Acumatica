@@ -1,6 +1,6 @@
 # tests/test_inquiry_options.py
 
-from easy_acumatica.models.inquiry_builder import InquiryBuilder
+from easy_acumatica.builders.inquiry_builder import InquiryBuilder
 
 def test_chaining_returns_self():
     opts = InquiryBuilder()

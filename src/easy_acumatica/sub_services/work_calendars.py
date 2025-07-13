@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.query_builder import QueryOptions
-from ..models.work_calendar_builder import WorkCalendarBuilder
+from ..odata import QueryOptions
+from ..builders.work_calendar_builder import WorkCalendarBuilder
 from ..helpers import _raise_with_detail
 
 if TYPE_CHECKING:

@@ -5,9 +5,9 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.inventory import InventoryService
-from easy_acumatica.models.inventory_issue_builder import InventoryIssueBuilder
+from easy_acumatica.builders.inventory_issue_builder import InventoryIssueBuilder
 from easy_acumatica.sub_services.inquiries import InquiriesService
-from easy_acumatica.models.item_warehouse_builder import ItemWarehouseBuilder
+from easy_acumatica.builders.item_warehouse_builder import ItemWarehouseBuilder
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"

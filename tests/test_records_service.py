@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from easy_acumatica import AcumaticaClient
-from easy_acumatica.models.record_builder import RecordBuilder
+from easy_acumatica.builders.record_builder import RecordBuilder
 from easy_acumatica.models.filter_builder import F
 from easy_acumatica.models.query_builder import QueryOptions
 

@@ -1,7 +1,7 @@
 # tests/test_stock_item_builder.py
 
 import pytest
-from easy_acumatica.models.stock_item_builder import StockItemBuilder
+from easy_acumatica.builders.stock_item_builder import StockItemBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

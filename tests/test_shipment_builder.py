@@ -1,7 +1,7 @@
 # tests/test_shipment_builder.py
 
 import pytest
-from easy_acumatica.models.shipment_builder import ShipmentBuilder
+from easy_acumatica.builders.shipment_builder import ShipmentBuilder
 
 def test_builder_simple_fields():
     """Tests setting simple, top-level fields."""

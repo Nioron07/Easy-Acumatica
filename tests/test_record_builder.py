@@ -1,6 +1,6 @@
 # tests/test_record_builder.py
 
-from easy_acumatica.models.record_builder import RecordBuilder
+from easy_acumatica.builders.record_builder import RecordBuilder
 
 
 # ---------------------------------------------------------------------

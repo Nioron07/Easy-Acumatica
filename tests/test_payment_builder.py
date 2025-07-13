@@ -1,7 +1,7 @@
 # tests/models/test_payment_builder.py
 
 import pytest
-from easy_acumatica.models.payment_builder import PaymentBuilder
+from easy_acumatica.builders.payment_builder import PaymentBuilder
 
 
 def test_builder_methods_chain():
