@@ -24,7 +24,6 @@ def _raise_with_detail(resp: requests.Response) -> None:
         # ---- try to parse JSON -------------------------------------
         try:
             data = resp.json()
-            print(data)
             if isinstance(data, dict):
                 detail = (
                     data.get("exceptionMessage")

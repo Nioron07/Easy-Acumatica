@@ -71,7 +71,6 @@ class ContactsService:  # pylint: disable=too-few-public-methods
             url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
         else:
             url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
-        print(url)
         params = options.to_params() if options else None
 
         resp = self._client._request("get", url, params=params, verify=self._client.verify_ssl)
