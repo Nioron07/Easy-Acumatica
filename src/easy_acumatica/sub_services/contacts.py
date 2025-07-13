@@ -1,126 +1,69 @@
-"""easy_acumatica.sub_services.contacts
-========================
+# src/easy_acumatica/sub_services/contacts.py
 
-Typed wrapper around Acumatica's *contract‑based* REST endpoint for
-**contacts** (``/entity/Default/[version]/Contact``).
-
-The public :class:`ContactsService` exposes two helpers:
-
-* :meth:`get_contacts` – list/search contacts with optional
-  :class:`~easy_acumatica.filters.QueryOptions` (``$filter``, ``$expand`` …).
-* :meth:`create_contact` – create a new contact using a
-  :class:`~easy_acumatica.models.contact.ContactBuilder` payload.
-
-Typical usage
--------------
->>> from easy_acumatica import AcumaticaClient, QueryOptions, Filter
->>> from easy_acumatica.models.contact import ContactBuilder
->>> client = AcumaticaClient(...credentials...)
->>> opts = QueryOptions(filter=Filter().eq("ContactID", 100073))
->>> contacts = client.contacts.get_contacts("24.200.001", options=opts)
->>> contacts[0]["DisplayName"]
-'John Smith'
->>> # build & push a new lead
->>> draft = (ContactBuilder()
-...          .first_name("Brent")
-...          .last_name("Edds")
-...          .email("brent.edds@example.com")
-...          .contact_class("ENDCUST")
-...          .add_attribute("INTEREST", "Jam,Maint"))
->>> created = client.contacts.create_contact("24.200.001", draft)
->>> created["ContactID"]["value"]
-104000
-"""
 from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, Optional, Union
 
-from ..models.filter_builder import Filter, F
-from ..models.query_builder import QueryOptions
-from ..models.contact_builder import ContactBuilder  # payload builder
-from ..helpers import _raise_with_detail
-if TYPE_CHECKING:  # pragma: no cover – import‑time hint only
+from ..core import BaseService # Import the base class
+from ..models import (
+    Contact,
+    QueryOptions,
+    F,
+    Filter
+)
+
+if TYPE_CHECKING:
     from ..client import AcumaticaClient
 
 __all__ = ["ContactsService"]
 
-
-
-
-class ContactsService:  # pylint: disable=too-few-public-methods
-    """High‑level helper for **Contact** resources.
-
-    Instances are created by :class:`easy_acumatica.client.AcumaticaClient`
-    and share its authenticated :pyclass:`requests.Session`.
+class ContactsService(BaseService):
+    """
+    High-level helper for Contact resources, built on the BaseService.
     """
 
     def __init__(self, client: "AcumaticaClient") -> None:
-        self._client = client
+        """Initializes the service with the 'Contact' entity."""
+        super().__init__(client, "Contact")
 
-    # ------------------------------------------------------------------
+    def get_schema(self, api_version: Optional[str] = None) -> Any:
+        """
+        Retrieves the swagger schema for the endpoint. This method contains
+        custom logic that does not fit the standard service methods.
+        """
+        return self._get_schema(self.entity_name)
+
     def get_contacts(
         self,
         api_version: Optional[str] = None,
         options: Optional[QueryOptions] = None,
     ) -> Any:
-        """Retrieve contacts, optionally filtered/expanded/selected."""
+        """Retrieves a list of contacts using the base _get method."""
+        return self._get(api_version, options=options)
 
-        if not self._client.persistent_login:
-            self._client.login()
-        if api_version == None:
-            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
-        else:
-            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
-        params = options.to_params() if options else None
-
-        resp = self._client._request("get", url, params=params, verify=self._client.verify_ssl)
-        _raise_with_detail(resp)
-
-        if not self._client.persistent_login:
-            self._client.logout()
-        return resp.json()
-
-    # ------------------------------------------------------------------
     def create_contact(
         self,
-        draft: ContactBuilder,
+        draft: Contact,
         api_version: Optional[str] = None
     ) -> Any:
-        """Create a new contact (lead) in Acumatica.
+        """Creates a new contact using the base _put method."""
+        return self._put(draft, api_version)
 
-        Parameters
-        ----------
-        api_version : str
-            Target endpoint version, e.g. ``"24.200.001"``.
-        draft : ContactBuilder
-            Fluent payload builder.  Call :pymeth:`ContactBuilder.build` to
-            see the raw JSON that will be sent.
-
-        Returns
-        -------
-        Any
-            JSON representation of the newly‑created record.
-        """
-        if not self._client.persistent_login:
-            self._client.login()
-
-        if api_version == None:
-            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
+    def update_contact(
+        self,
+        filter_: Union[Filter, str, QueryOptions],
+        payload: Union[dict, Contact],
+        api_version: Optional[str] = None
+    ) -> Any:
+        """Updates one or more contacts selected by a filter."""
+        if isinstance(filter_, QueryOptions):
+            options = filter_
         else:
-            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
-        # _request will retry on 401 and raise on any other HTTP error
-        resp = self._client._request(
-            "put",
-            url,
-            json=draft.build(),
-            verify=self._client.verify_ssl,
-        )
+            # Create a QueryOptions object from the filter string or Filter object
+            flt = filter_.build() if isinstance(filter_, Filter) else str(filter_)
+            options = QueryOptions(filter=flt)
 
-        if not self._client.persistent_login:
-            self._client.logout()
+        return self._put(payload, api_version, options=options)
 
-        return resp.json()
-    # ------------------------------------------------------------------
     def deactivate_contact(
         self,
         filter_: Union[Filter, str, QueryOptions],
@@ -128,183 +71,44 @@ class ContactsService:  # pylint: disable=too-few-public-methods
         *,
         active: bool = False,
     ) -> Any:
-        """Activate or deactivate contacts via `$filter`.
-
-        Parameters
-        ----------
-        api_version : str
-            Target endpoint version, e.g. ``"24.200.001"``.
-        filter_ : Filter | str | QueryOptions
-            OData filter selecting the contacts to update.  If a
-            :class:`Filter` or plain string is supplied, it is converted
-            into a minimal :class:`QueryOptions` holding only ``$filter``.
-            Passing a full :class:`QueryOptions` lets you combine `$top`
-            etc. but the server will still update all hits.
-        active : bool, keyword‑only, default ``False``
-            ``False`` → deactivate (set *Active* field to **false**).  
-            ``True``  → activate again.
-
-        Returns
-        -------
-        Any
-            JSON payload returned by Acumatica (usually the updated
-            records).
-        """
-        if not self._client.persistent_login:
-            self._client.login()
-
-        if isinstance(filter_, QueryOptions):
-            params = filter_.to_params()
-        else:
-            flt = filter_.build() if isinstance(filter_, Filter) else str(filter_)
-            params = {"$filter": flt}
-
-        if api_version == None:
-            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
-        else:
-            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
+        """Activates or deactivates contacts by updating the 'Active' flag."""
         payload = {"Active": {"value": bool(active)}}
+        return self.update_contact(filter_, payload, api_version)
 
-        resp = self._client._request(
-            "put",
-            url,
-            params=params,
-            json=payload,
-            verify=self._client.verify_ssl,
-        )
-
-        if not self._client.persistent_login:
-            self._client.logout()
-        return resp.json()
-    # ------------------------------------------------------------------
-    def update_contact(
-        self,
-        filter_: Union[Filter, str, QueryOptions],
-        payload: Union[dict, ContactBuilder],
-        api_version: Optional[str] = None
-    ) -> Any:
-        """
-        Update one-or-more contacts selected by an OData ``$filter``.
-
-        Acumatica requires ``PUT /Contact?$filter=...`` for updates.
-        Any fields present in *payload* overwrite the existing values.
-
-        Parameters
-        ----------
-        api_version : str
-        filter_ : Filter | str | QueryOptions
-            Expression that uniquely identifies the contact(s),
-            e.g. ``Filter().eq("ContactID", 110596)``.
-        payload : dict | ContactBuilder
-            Only include the fields you want to change.
-
-        Returns
-        -------
-        Any
-            JSON list of the updated record(s) returned by Acumatica.
-        """
-        if not self._client.persistent_login:
-            self._client.login()
-
-        if isinstance(filter_, QueryOptions):
-            params = filter_.to_params()
-        else:
-            flt = filter_.build() if isinstance(filter_, Filter) else str(filter_)
-            params = {"$filter": flt}
-
-        body = payload.build() if isinstance(payload, ContactBuilder) else payload
-        if api_version == None:
-            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact"
-        else:
-            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact"
-
-        resp = self._client._request(
-            "put",
-            url,
-            params=params,
-            json=body,
-            verify=self._client.verify_ssl,
-        )
-
-        if not self._client.persistent_login:
-            self._client.logout()
-        return resp.json()
-
-
-    # ------------------------------------------------------------------
     def delete_contact(self, note_id: str, api_version: Optional[str] = None) -> None:
         """
-        Permanently delete a contact.
-
-        Parameters
-        ----------
-        api_version : str
-            Endpoint version (``"24.200.001"`` …).
-        note_id : str
-            The GUID from the contact’s ``NoteID`` field.
-
-        Notes
-        -----
-        * The contract-based API returns **HTTP 204 No Content** on success.
-        * Deletion cannot be undone; consider using
-        :meth:`deactivate_contact` if soft-delete semantics are preferred.
+        Permanently deletes a contact by its NoteID (GUID).
+        Note: This requires a _delete method to be added to the BaseService.
         """
-        if not self._client.persistent_login:
-            self._client.login()
+        # Assuming BaseService has a _delete method similar to _get and _put.
+        # It would look like: self._delete(api_version, entity_id=note_id)
+        url = f"{self._get_url(api_version)}/{note_id}"
+        self._request("delete", url, verify=self._client.verify_ssl)
 
-        if api_version == None:
-            url = f"{self._client.base_url}/entity/Default/{self._client.endpoints["Default"]['version']}/Contact/{note_id}"
-        else:
-            url = f"{self._client.base_url}/entity/Default/{api_version}/Contact/{note_id}"
-        # this will now automatically retry if we got a 401
-        self._client._request("delete", url, verify=self._client.verify_ssl)
-
-        if not self._client.persistent_login:
-            self._client.logout()
-    
-    # ------------------------------------------------------------------
     def link_contact_to_customer(
         self,
         contact_id: int,
         business_account: str,
         api_version: Optional[str] = None,
-        payload: Optional[Union[dict, ContactBuilder]] = None
+        payload: Optional[Union[dict, Contact]] = None
     ) -> Any:
-        """
-        Link an existing contact to a customer (business account).
-
-        Parameters
-        ----------
-        api_version : str
-            Endpoint version, e.g. ``"24.200.001"``.
-        contact_id : int | str
-            The contact's **ContactID** key.
-        business_account : str
-            Target customer/business-account code (e.g. ``"ABAKERY"``).
-        payload : dict | ContactBuilder, optional
-            *Additional* fields to change in the same request.  
-            • If a ``dict`` is provided, it must already be in the
-              Acumatica REST JSON format.  
-            • If a :class:`ContactBuilder` is provided, its
-              :pymeth:`ContactBuilder.build` output is used.
-
-        Returns
-        -------
-        Any
-            JSON representation of the updated contact.
-        """
-        # --------------------- Build the request body ------------------
-
+        """Links an existing contact to a customer (business account)."""
+        
         if payload is None:
-            body: dict[str, Any] = {}
-        elif isinstance(payload, ContactBuilder):
-            body = payload.build()
+            # If no payload, create a new builder. Otherwise, use the provided one.
+            body_builder = Contact()
+        elif isinstance(payload, Contact):
+            body_builder = payload
         else:
-            body = dict(payload)
+            # If a dict is passed, convert it to a builder to maintain a
+            # consistent object type for modification.
+            body_builder = Contact()
+            body_builder._data = payload
 
-        body["BusinessAccount"] = {"value": business_account}
-        body["ContactID"] = {"value": contact_id}
-
-        # reuse update_contact (handles retry/login/logout)
-        result = self.update_contact(api_version, F.ContactID == contact_id, body)
-        return result
+        # Add the linking fields to the builder
+        body_builder.set("BusinessAccount", business_account)
+        body_builder.set("ContactID", contact_id)
+        
+        # Use the contact's ID to create the filter and call the update method
+        update_filter = F.ContactID == contact_id
+        return self.update_contact(update_filter, body_builder, api_version)

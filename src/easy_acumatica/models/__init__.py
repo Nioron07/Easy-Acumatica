@@ -9,7 +9,7 @@ from .code_builder import (
     PayrollWCCCodeBuilder,
 )
 from .configuration_entry_builder import ConfigurationEntryBuilder
-from .contact_builder import ContactBuilder, Attribute
+from .contact_builder import Contact, Address, Attribute
 from .customer_builder import CustomerBuilder
 from .employee_builder import EmployeeBuilder
 from .employee_payroll_class_builder import EmployeePayrollClassBuilder
@@ -35,11 +35,12 @@ from .work_location_builder import WorkLocationBuilder
 
 __all__ = [
     "Attribute",
+    "Address"
     "BillBuilder",
     "BOMBuilder",
     "CaseBuilder",
     "ConfigurationEntryBuilder",
-    "ContactBuilder",
+    "Contact",
     "CustomField",
     "CustomerBuilder",
     "DeductionBenefitCodeBuilder",

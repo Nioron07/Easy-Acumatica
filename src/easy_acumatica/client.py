@@ -63,6 +63,7 @@ from .sub_services.work_locations import WorkLocationsService
 from .sub_services.bills import BillsService
 from .sub_services.boms import BomsService
 from .sub_services.business_accounts import BusinessAccountsService
+from .sub_services.employee_payroll import EmployeePayrollService
 from .helpers import _raise_with_detail
 
 __all__ = ["AcumaticaClient"]
@@ -182,6 +183,7 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.bills: BillsService = BillsService(self)
         self.boms: BomsService = BomsService(self)
         self.business_accounts: BusinessAccountsService = BusinessAccountsService(self)
+        self.employee_payroll: EmployeePayrollService = EmployeePayrollService(self)
 
         endpoint_info = self.get_endpoint_info()['endpoints']
         self.endpoints = {}
@@ -300,5 +302,3 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
             self.logout()
 
         return resp.json()
-
-#-- Test Commit 1 --#

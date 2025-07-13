@@ -4,8 +4,7 @@ import requests
 
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.sub_services.accounts import AccountService
-from easy_acumatica.models.filter_builder import F
-from easy_acumatica.models.query_builder import QueryOptions
+from easy_acumatica.models import F, QueryOptions
 
 API_VERSION = "24.200.001"
 BASE = "https://fake"
@@ -26,6 +25,8 @@ class DummyResponse:
 @pytest.fixture
 def client(monkeypatch):
     """Provides a mocked AcumaticaClient instance with the AccountService attached."""
+    # Mock the get_endpoint_info to prevent network calls during client initialization
+    monkeypatch.setattr(AcumaticaClient, "get_endpoint_info", lambda self: {"endpoints": []})
     monkeypatch.setattr(AcumaticaClient, "login", lambda self: 204)
     monkeypatch.setattr(AcumaticaClient, "logout", lambda self: 204)
     
@@ -134,4 +135,3 @@ def test_set_default_account_for_group_success(monkeypatch, service):
     monkeypatch.setattr(service._client, "_request", fake_request)
     result = service.set_default_account_for_group(API_VERSION, "ASSET-L", "170100")
     assert result["DefaultAccountID"]["value"] == "170100"
-
