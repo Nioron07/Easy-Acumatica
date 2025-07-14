@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
-from easy_acumatica.core import BaseDataClassModel
+from .core import BaseDataClassModel
 
 
 @dataclass

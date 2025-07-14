@@ -24,3 +24,5 @@ dist/
 # Local Testing
 indepthtests/
 contacts_output.json
+src/easy_acumatica/client.pyi
+src/easy_acumatica/models.pyi

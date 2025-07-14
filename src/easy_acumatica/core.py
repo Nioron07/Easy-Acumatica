@@ -96,17 +96,25 @@ class BaseService:
 
     def _get(
         self,
-        api_version: Optional[str] = None,
-        entity_id: Optional[str] = None,
-        options: Optional[QueryOptions] = None,
+        entity_id: str | list[str] | None = None,
+        options: QueryOptions | None = None,
+        api_version: Optional[str] = None
     ) -> Any:
         """Performs a GET request."""
         url = self._get_url(api_version)
+        
+        # --- THIS IS THE FIX ---
+        # It now correctly handles single IDs, lists of IDs, and no ID.
         if entity_id:
-            url = f"{url}/{entity_id}"
+            # If the ID is a list, join it with commas for the URL.
+            # Otherwise, use the string ID directly.
+            keys = ",".join(map(str, entity_id)) if isinstance(entity_id, list) else entity_id
+            url = f"{url}/{keys}"
+            
         params = options.to_params() if options else None
-        headers = {"Accept": "application/json"}
-        return self._request("get", url, params=params, headers=headers, verify=self._client.verify_ssl)
+        
+        # The base _request method handles the actual API call.
+        return self._request("get", url, params=params)
 
     def _put(
         self,

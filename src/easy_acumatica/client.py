@@ -3,14 +3,8 @@
 
 A lightweight wrapper around the **contract-based REST API** of
 Acumatica ERP. The :class:`AcumaticaClient` class handles the entire
-session lifecycle:
-
-* opens a persistent :class:`requests.Session`;
-* logs in automatically when the object is created;
-* dynamically generates data models from the live endpoint schema;
-* exposes typed *sub-services* (for example, :pyattr:`contacts`);
-* guarantees a clean logout either explicitly via
-  :pymeth:`logout` or implicitly on interpreter shutdown.
+session lifecycle and dynamically generates its data models and service
+layers from the live endpoint schema.
 
 Usage example
 -------------
@@ -19,28 +13,26 @@ Usage example
 ...     base_url="https://demo.acumatica.com",
 ...     username="admin",
 ...     password="Pa$$w0rd",
-...     tenant="Company",
-...     branch="HQ")
->>> # Create a new Bill using a dynamically generated model
+...     tenant="Company")
+>>>
+>>> # Create a new Bill using a dynamically generated model and service
 >>> new_bill = client.models.Bill(Vendor="MYVENDOR01", Type="Bill")
->>> client.bills.create_bill(new_bill)
->>> client.logout()  # optional - will also run automatically
+>>> created_bill = client.bills.put_entity(new_bill)
+>>>
+>>> client.logout()
 """
 from __future__ import annotations
-
 import atexit
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 import requests
-from . import builders
+
+from . import models
 from .model_factory import ModelFactory
+from .service_factory import ServiceFactory # Import the new ServiceFactory
 from .helpers import _raise_with_detail
-
-# Sub-services
-from .sub_services import *
-
+from .core import BaseService
 
 __all__ = ["AcumaticaClient"]
-
 
 class AcumaticaClient:
     """High-level convenience wrapper around Acumatica's REST endpoint."""
@@ -53,7 +45,7 @@ class AcumaticaClient:
         username: str,
         password: str,
         tenant: str,
-        branch: str,
+        branch: Optional[str] = None,
         locale: Optional[str] = None,
         verify_ssl: bool = True,
         persistent_login: bool = True,
@@ -61,7 +53,7 @@ class AcumaticaClient:
         endpoint_name: str = "Default",
         endpoint_version: Optional[str] = None
     ) -> None:
-        # --- public attributes ---
+        # --- Public attributes ---
         self.base_url: str = base_url.rstrip("/")
         self.session: requests.Session = requests.Session()
         self.verify_ssl: bool = verify_ssl
@@ -71,74 +63,34 @@ class AcumaticaClient:
         self.persistent_login: bool = persistent_login
         self.retry_on_idle_logout: bool = retry_on_idle_logout
         self.endpoints: Dict[str, Dict] = {}
+        self.models = models # The placeholder module for our dynamic models
 
-        # --- payload construction ---
-        payload = {
-            "name": username, "password": password, "tenant": tenant,
-            "branch": branch, **({"locale": locale} if locale else {}),
-        }
-        self._login_payload = {k: v for k, v in payload.items() if v is not None}
+        # --- Login payload construction ---
+        payload = {"name": username, "password": password, "tenant": tenant}
+        if branch: payload["branch"] = branch
+        if locale: payload["locale"] = locale
+        self._login_payload: dict[str, str] = {k: v for k, v in payload.items() if v is not None}
         self._logged_in: bool = False
 
         # --- Login and Schema Generation ---
         if self.persistent_login:
             self.login()
 
-        # Fetch all available endpoints and their versions
         self._populate_endpoint_info()
-
-        # Determine the target version and generate models
         target_version = endpoint_version or self.endpoints.get(endpoint_name, {}).get('version')
         if not target_version:
             raise ValueError(f"Could not determine a version for endpoint '{endpoint_name}'.")
 
-        self._fetch_and_populate_models_module(endpoint_name, target_version)
-        self.models = builders # Attach the module to the client instance
-
-        # --- Service Proxies ---
-        self._initialize_services()
+        schema = self._fetch_schema(endpoint_name, target_version)
+        
+        # --- DYNAMIC MODEL AND SERVICE GENERATION ---
+        self._build_dynamic_models(schema)
+        self._build_dynamic_services(schema)
 
         # --- Exit Hook ---
         if not AcumaticaClient._atexit_registered:
             atexit.register(self._atexit_logout)
             AcumaticaClient._atexit_registered = True
-
-    def _initialize_services(self):
-        """Initializes all the sub-service attributes."""
-        self.records = RecordsService(self)
-        self.contacts = ContactsService(self)
-        self.inquiries = InquiriesService(self)
-        self.customers = CustomersService(self)
-        self.codes = CodesService(self)
-        self.files = FilesService(self)
-        self.accounts = AccountService(self)
-        self.account_groups = AccountGroupsService(self)
-        self.transactions = TransactionsService(self)
-        self.actions = ActionsService(self)
-        self.activities = ActivitiesService(self)
-        self.payments = PaymentsService(self)
-        self.invoices = InvoicesService(self)
-        self.employees = EmployeesService(self)
-        self.leads = LeadsService(self)
-        self.tax_categories = TaxCategoryService(self)
-        self.ledgers = LedgersService(self)
-        self.cases = CasesService(self)
-        self.companies = CompaniesService(self)
-        self.manufacturing = ManufacturingService(self)
-        self.inventory = InventoryService(self)
-        self.sales_orders = SalesOrdersService(self)
-        self.shipments = ShipmentsService(self)
-        self.stock_items = StockItemsService(self)
-        self.service_orders = ServiceOrdersService(self)
-        self.purchase_orders = PurchaseOrdersService(self)
-        self.purchase_receipts = PurchaseReceiptsService(self)
-        self.time_entries = TimeEntriesService(self)
-        self.work_calendars = WorkCalendarsService(self)
-        self.work_locations = WorkLocationsService(self)
-        self.bills = BillsService(self)
-        self.boms = BomsService(self)
-        self.business_accounts = BusinessAccountsService(self)
-        self.employee_payroll = EmployeePayrollService(self)
 
     def _populate_endpoint_info(self):
         """Retrieves and stores the latest version for each available endpoint."""
@@ -150,20 +102,26 @@ class AcumaticaClient:
             if name and (name not in self.endpoints or endpoint.get('version', '0') > self.endpoints[name].get('version', '0')):
                 self.endpoints[name] = endpoint
 
-    def _fetch_and_populate_models_module(self, endpoint_name: str, version: str) -> None:
-        """
-        Fetches the OpenAPI schema and populates the 'models' module
-        with dynamically generated dataclasses.
-        """
+    def _fetch_schema(self, endpoint_name: str, version: str) -> Dict[str, Any]:
+        """Fetches the OpenAPI schema for a given endpoint."""
         schema_url = f"{self.base_url}/entity/{endpoint_name}/{version}/swagger.json"
-        schema = self._request("get", schema_url).json()
+        return self._request("get", schema_url).json()
 
+    def _build_dynamic_models(self, schema: Dict[str, Any]):
+        """Populates the 'models' module with dynamically generated dataclasses."""
         factory = ModelFactory(schema)
         model_dict = factory.build_models()
-        
-        # Attach each generated class to the models module
         for name, model_class in model_dict.items():
-            setattr(builders, name, model_class)
+            setattr(self.models, name, model_class)
+
+    def _build_dynamic_services(self, schema: Dict[str, Any]):
+        """Attaches dynamically created services to the client instance."""
+        factory = ServiceFactory(self, schema)
+        services_dict = factory.build_services()
+        for name, service_instance in services_dict.items():
+            # Convert PascalCase (e.g., SalesOrder) to snake_case (e.g., sales_orders)
+            attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_') + 's'
+            setattr(self, attr_name, service_instance)
 
     def login(self) -> int:
         """Authenticate and obtain a cookie-based session."""
@@ -180,7 +138,6 @@ class AcumaticaClient:
         if self._logged_in:
             url = f"{self.base_url}/entity/auth/logout"
             response = self.session.post(url, verify=self.verify_ssl)
-            # Don't raise for status on logout, as session might already be expired
             self.session.cookies.clear()
             self._logged_in = False
             return response.status_code
@@ -194,25 +151,18 @@ class AcumaticaClient:
             pass
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
-        """
-        Perform a session request, with automatic re-login on 401 Unauthorized.
-        """
-        # Ensure we are logged in for non-persistent sessions
+        """Perform a session request, with automatic re-login on 401 Unauthorized."""
         if not self.persistent_login:
             self.login()
 
         try:
             resp = self.session.request(method, url, **kwargs)
-            
-            # If we get a 401, our session likely timed out.
             if resp.status_code == 401 and self.retry_on_idle_logout:
                 self._logged_in = False
-                self.login() # Re-authenticate
-                resp = self.session.request(method, url, **kwargs) # Retry the request
-
+                self.login()
+                resp = self.session.request(method, url, **kwargs)
             _raise_with_detail(resp)
             return resp
         finally:
-            # Logout after each request for non-persistent sessions
             if not self.persistent_login:
                 self.logout()

@@ -44,6 +44,7 @@ class ModelFactory:
         # --- CORE FIX: Navigate the 'allOf' structure ---
         properties = {}
         if 'allOf' in definition:
+            # fields.append(('id', Optional[str], field(default=None)))
             for item in definition['allOf']:
                 if 'properties' in item:
                     properties.update(item['properties'])

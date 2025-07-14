@@ -21,3 +21,6 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://easyacumatica.com/"
 "Source"   = "https://github.com/Nioron07/Easy-Acumatica"
+
+[project.scripts]
+easy-acumatica-stubs = "easy_acumatica.generate_stubs:main"
