@@ -49,6 +49,12 @@ PTOBank
 SalesInvoice
 Vendor
 
+## Generate Stubs for Development
+
+```bash
+easy-acumatica-stubs --url "https://*domain*.acumatica.com" --username "*username*" --password "*password*" --tenant "*Tenant*" --endpoint-version "*api version*"
+```
+
 ## Easy Acumatica-Chan says "Thanks for Downloading!"
 
 ![Logo](assets/EA-Anime.png)
