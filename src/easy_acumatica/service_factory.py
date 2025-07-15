@@ -122,6 +122,9 @@ class ServiceFactory:
 
         def delete_by_id(self, entity_id: Union[str, list], api_version: str | None = None):
             return self._delete(entity_id=entity_id, api_version=api_version)
+        
+        def put_file(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None):
+            return self._put_file(entity_id, filename, data, comment=comment, api_version=api_version)
 
         def invoke_action(self, invocation: BaseDataClassModel, api_version: str | None = None):
             action_name = path.split('/')[-1]
@@ -135,7 +138,9 @@ class ServiceFactory:
 
         # --- Step 5: Select the Correct Template Based on the API Operation ---
         template = None
-        if "GetAdHocSchema" in operation_id:
+        if "PutFile" in operation_id:  # This condition was missing
+            template = put_file
+        elif "GetAdHocSchema" in operation_id:
             template = get_schema
         elif "InvokeAction" in operation_id:
             template = invoke_action

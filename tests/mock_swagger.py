@@ -1,63 +1,41 @@
+# tests/mock_swagger.py
+
 def get_swagger_json():
     """
-    Returns a mock OpenAPI (swagger) schema tailored for testing.
-    
-    This schema defines:
-    - A 'Test' service with all standard REST operations (GetList, GetById, Put, Delete, etc.).
-    - A 'TestModel' with basic fields (Name, Value, IsActive).
-    - An action 'TestAction' to verify the action invocation logic.
-    - Necessary primitive wrapper types (StringValue, BooleanValue).
+    Returns a more realistic mock OpenAPI (swagger) schema that includes
+    the standard 'id' field on entities and a 'comment' on file links.
     """
     return {
         "openapi": "3.0.1",
         "info": {"title": "Test/v1", "version": "1"},
         "paths": {
             "/Test": {
-                "get": {
-                    "tags": ["Test"],
-                    "operationId": "Test_GetList",
-                    "responses": {"200": {"description": "Success"}},
-                },
-                "put": {
-                    "tags": ["Test"],
-                    "operationId": "Test_PutEntity",
-                    "requestBody": {
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestModel"}}}
-                    },
-                    "responses": {"200": {"description": "Success"}},
-                },
+                "get": {"tags": ["Test"], "operationId": "Test_GetList", "responses": {"200": {"description": "Success"}}},
+                "put": {"tags": ["Test"], "operationId": "Test_PutEntity", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestModel"}}}}, "responses": {"200": {"description": "Success"}}},
             },
             "/Test/{id}": {
-                "get": {
-                    "tags": ["Test"],
-                    "operationId": "Test_GetById",
-                    "responses": {"200": {"description": "Success"}},
-                },
-                "delete": {
-                    "tags": ["Test"],
-                    "operationId": "Test_DeleteById",
-                    "responses": {"204": {"description": "Success"}},
-                },
+                "get": {"tags": ["Test"], "operationId": "Test_GetById", "responses": {"200": {"description": "Success"}}},
+                "delete": {"tags": ["Test"], "operationId": "Test_DeleteById", "responses": {"204": {"description": "Success"}}},
             },
             "/Test/TestAction": {
-                "post": {
-                    "tags": ["Test"],
-                    "operationId": "Test_InvokeAction_TestAction",
-                    "requestBody": {
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestAction"}}}
-                    },
-                    "responses": {"204": {"description": "Success"}},
-                }
+                "post": {"tags": ["Test"], "operationId": "Test_InvokeAction_TestAction", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestAction"}}}}, "responses": {"204": {"description": "Success"}}}
             },
             "/Test/$adHocSchema": {
-                "get": {
-                    "tags": ["Test"],
-                    "operationId": "Test_GetAdHocSchema",
-                    "responses": {"200": {"description": "Success"}},
+                "get": {"tags": ["Test"], "operationId": "Test_GetAdHocSchema", "responses": {"200": {"description": "Success"}}}
+            },
+            "/Test/{ids}/files/{filename}": {
+                "put": {
+                    "tags": ["Test"], "operationId": "Test_PutFile",
+                    "parameters": [{"$ref": "#/components/parameters/ids"}, {"$ref": "#/components/parameters/filename"}],
+                    "responses": {"204": {"description": "File attached"}}
                 }
             }
         },
         "components": {
+            "parameters": {
+                "ids": {"name": "ids", "in": "path", "required": True, "schema": {"type": "string"}},
+                "filename": {"name": "filename", "in": "path", "required": True, "schema": {"type": "string"}}
+            },
             "schemas": {
                 "TestModel": {
                     "allOf": [
@@ -65,27 +43,38 @@ def get_swagger_json():
                         {
                             "type": "object",
                             "properties": {
+                                "id": {"$ref": "#/components/schemas/GuidValue"},
                                 "Name": {"$ref": "#/components/schemas/StringValue"},
                                 "Value": {"$ref": "#/components/schemas/StringValue"},
                                 "IsActive": {"$ref": "#/components/schemas/BooleanValue"},
+                                "files": {
+                                    "type": "array",
+                                    "items": {"$ref": "#/components/schemas/FileLink"}
+                                }
                             },
                         },
                     ]
                 },
+                "FileLink": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "filename": {"type": "string"},
+                        "href": {"type": "string"},
+                        "comment": {"type": "string", "nullable": True}
+                    }
+                },
                 "TestAction": {
+                    "required": ["entity"],
                     "type": "object",
                     "properties": {
                         "entity": {"$ref": "#/components/schemas/TestModel"},
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "Param1": {"$ref": "#/components/schemas/StringValue"}
-                            }
-                        }
+                        "parameters": {"type": "object", "properties": {"Param1": {"$ref": "#/components/schemas/StringValue"}}}
                     }
                 },
                 "Entity": {"type": "object", "properties": {}},
                 "StringValue": {"type": "object", "properties": {"value": {"type": "string"}}},
+                "GuidValue": {"type": "object", "properties": {"value": {"type": "string", "format": "uuid"}}},
                 "BooleanValue": {"type": "object", "properties": {"value": {"type": "boolean"}}},
             }
         },
