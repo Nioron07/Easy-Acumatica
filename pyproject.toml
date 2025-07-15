@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://easyacumatica.com/"
+"Homepage" = "https://www.easyacumatica.com/"
 "Source"   = "https://github.com/Nioron07/Easy-Acumatica"
 
 [project.scripts]

@@ -2,20 +2,105 @@ import argparse
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import requests
 
-# Add project source to path to allow importing the package
 project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root / 'src'))
 
 from easy_acumatica.helpers import _raise_with_detail
 
+def _generate_service_docstring(service_name: str, operation_id: str, details: Dict[str, Any]) -> str:
+    """Generates a detailed docstring from OpenAPI schema details."""
+    summary = details.get("summary", "No summary available.")
+    description = f"{summary} for the {service_name} entity."
+
+    args_section = ["Args:"]
+    if 'requestBody' in details:
+        try:
+            ref = details['requestBody']['content']['application/json']['schema']['$ref']
+            model_name = ref.split('/')[-1]
+            if "InvokeAction" in operation_id:
+                args_section.append(f"    invocation (models.{model_name}): The action invocation data.")
+            else:
+                args_section.append(f"    data (Union[dict, models.{model_name}]): The entity data to create or update.")
+        except KeyError:
+            args_section.append("    data (dict): The entity data.")
+
+    if 'parameters' in details:
+        for param in details['parameters']:
+            if param.get('in') == 'path' and 'id' in param.get('name', '').lower():
+                args_section.append("    entity_id (Union[str, list]): The primary key of the entity.")
+
+    if "PutFile" in operation_id:
+        args_section.append("    filename (str): The name of the file to upload.")
+        args_section.append("    data (bytes): The file content.")
+        args_section.append("    comment (str, optional): A comment about the file.")
+
+    if any(s in operation_id for s in ["GetList", "GetById", "GetByKeys", "PutEntity"]):
+        args_section.append("    options (QueryOptions, optional): OData query options.")
+
+    args_section.append("    api_version (str, optional): The API version to use for this request.")
+
+    returns_section = "Returns:"
+    try:
+        response_schema = details['responses']['200']['content']['application/json']['schema']
+        if '$ref' in response_schema:
+            model_name = response_schema['$ref'].split('/')[-1]
+            returns_section += f"    A dictionary or a {model_name} data model instance."
+        elif response_schema.get('type') == 'array':
+            item_ref = response_schema['items']['$ref']
+            model_name = item_ref.split('/')[-1]
+            returns_section += f"    A list of dictionaries or {model_name} data model instances."
+        else:
+            returns_section += "    The JSON response from the API."
+    except KeyError:
+        returns_section += "    The JSON response from the API or None."
+
+
+    full_docstring = f"{description}\n\n"
+    if len(args_section) > 1:
+        full_docstring += "\n".join(args_section) + "\n\n"
+    full_docstring += returns_section
+
+    return textwrap.indent(full_docstring, '    ')
+
+
+def _generate_model_docstring(name: str, definition: Dict[str, Any]) -> str:
+    """Generates a docstring for a model in a .pyi stub file."""
+    description = definition.get("description", f"Represents the {name} entity.")
+    docstring_lines = [f"{description}\n"]
+    docstring_lines.append("Attributes:")
+
+    required_fields = definition.get("required", [])
+    properties = {}
+    if 'allOf' in definition:
+        for item in definition['allOf']:
+            if 'properties' in item:
+                properties.update(item['properties'])
+    else:
+        properties = definition.get("properties", {})
+
+    if not properties:
+        docstring_lines.append("    This model has no defined properties.")
+    else:
+        for prop_name, prop_details in sorted(properties.items()):
+            if prop_name in ["note", "rowNumber", "error", "_links"]:
+                continue
+
+            type_hint = _map_schema_type_to_python_type(prop_details, prop_name in required_fields)
+            type_display = type_hint.replace('Optional[', '').replace(']', '').replace("'", "")
+            required_marker = " (required)" if prop_name in required_fields else ""
+            docstring_lines.append(f"    {prop_name} ({type_display}){required_marker}")
+
+    indented_docstring = textwrap.indent('"""\n' + "\n".join(docstring_lines) + '\n"""', "    ")
+    return indented_docstring
+
 
 def _map_schema_type_to_python_type(prop_details: Dict[str, Any], is_required: bool) -> str:
     """Maps a schema property to a Python type hint string."""
-    
+
     def get_base_hint(details: Dict[str, Any]) -> str:
         schema_type = details.get("type")
         schema_format = details.get("format")
@@ -35,11 +120,11 @@ def _map_schema_type_to_python_type(prop_details: Dict[str, Any], is_required: b
                 if "Boolean" in ref_name: return "bool"
                 if "DateTime" in ref_name: return "datetime"
             return f"'{ref_name}'"
-            
+
         if schema_type == "array":
             item_hint = _map_schema_type_to_python_type(details.get("items", {}), False)
             return f"List[{item_hint}]"
-        
+
         return "Any"
 
     base_hint = get_base_hint(prop_details)
@@ -54,7 +139,7 @@ def generate_model_stubs(schema: Dict[str, Any]) -> str:
         "from datetime import datetime",
         "from .core import BaseDataClassModel\n"
     ]
-    
+
     schemas = schema.get("components", {}).get("schemas", {})
     primitive_wrappers = {
         "StringValue", "DecimalValue", "BooleanValue", "DateTimeValue",
@@ -67,8 +152,11 @@ def generate_model_stubs(schema: Dict[str, Any]) -> str:
 
         pyi_content.append(f"\n@dataclass")
         class_lines = [f"class {name}(BaseDataClassModel):"]
+        docstring = _generate_model_docstring(name, definition)
+        class_lines.append(docstring)
+
         required_fields = definition.get("required", [])
-        
+
         properties = {}
         if 'allOf' in definition:
             for item in definition['allOf']:
@@ -84,9 +172,9 @@ def generate_model_stubs(schema: Dict[str, Any]) -> str:
                 is_required = prop_name in required_fields
                 type_hint = _map_schema_type_to_python_type(prop_details, is_required)
                 class_lines.append(f"    {prop_name}: {type_hint} = ...")
-        
+
         pyi_content.extend(class_lines)
-    
+
     return "\n".join(pyi_content) + "\n"
 
 
@@ -112,37 +200,40 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
     for tag, operations in sorted(tags_to_ops.items()):
         service_class_name = f"{tag}Service"
         pyi_content.append(f"\nclass {service_class_name}(BaseService):")
-        
+
         if not operations:
             pyi_content.append("    ...")
         else:
             for op_id, (path, http_method, details) in sorted(operations.items()):
-                # --- THIS IS THE FIX ---
-                # The previous logic created a double underscore for some action names.
-                # This ensures the name is always correctly formatted snake_case.
                 name_part = op_id.split('_', 1)[-1]
                 method_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name_part]).lstrip('_')
                 method_name = method_name.replace('__', '_')
 
+                docstring = textwrap.indent(_generate_service_docstring(tag, op_id, details), '        ')
+
+                method_signature = ""
                 if "InvokeAction" in op_id:
                     ref = details.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
                     model_name = ref.split("/")[-1]
-                    pyi_content.append(f"    def {method_name}(self, invocation: models.{model_name}, api_version: str | None = None) -> Any: ...")
+                    method_signature = f"    def {method_name}(self, invocation: models.{model_name}, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "PutEntity" in op_id:
                     ref = details.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
                     model_name = ref.split("/")[-1]
-                    pyi_content.append(f"    def {method_name}(self, data: Union[dict, models.{model_name}], options: QueryOptions | None = None, api_version: str | None = None) -> Any: ...")
+                    method_signature = f"    def {method_name}(self, data: Union[dict, models.{model_name}], options: QueryOptions | None = None, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "PutFile" in op_id:
-                    pyi_content.append(f"    def {method_name}(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None) -> None: ...")
+                    method_signature = f"    def {method_name}(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None) -> None:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "GetById" in op_id or "GetByKeys" in op_id:
-                    pyi_content.append(f"    def {method_name}(self, entity_id: Union[str, List[str]], options: QueryOptions | None = None, api_version: str | None = None) -> Any: ...")
+                    method_signature = f"    def {method_name}(self, entity_id: Union[str, List[str]], options: QueryOptions | None = None, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "GetList" in op_id:
-                    pyi_content.append(f"    def {method_name}(self, options: QueryOptions | None = None, api_version: str | None = None) -> Any: ...")
+                    method_signature = f"    def {method_name}(self, options: QueryOptions | None = None, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "DeleteById" in op_id or "DeleteByKeys" in op_id:
-                    pyi_content.append(f"    def {method_name}(self, entity_id: Union[str, List[str]], api_version: str | None = None) -> None: ...")
+                    method_signature = f"    def {method_name}(self, entity_id: Union[str, List[str]], api_version: str | None = None) -> None:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "GetAdHocSchema" in op_id:
-                    pyi_content.append(f"    def {method_name}(self, api_version: str | None = None) -> Any: ...")
-    
+                    method_signature = f"    def {method_name}(self, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
+
+                if method_signature:
+                    pyi_content.append(method_signature)
+
     pyi_content.append("\nclass AcumaticaClient:")
     for tag in sorted(tags_to_ops.keys()):
         service_class_name = f"{tag}Service"

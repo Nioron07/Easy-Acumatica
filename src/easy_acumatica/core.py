@@ -29,23 +29,16 @@ class BaseDataClassModel:
             if value is None:
                 continue
 
-           # We add checks for list and dict to prevent them from being
-            # wrapped in {"value": ...}, while still processing their contents.
             if isinstance(value, list):
-                # For lists, serialize each item but do not wrap the list itself
                 payload[f.name] = [
                     item.to_acumatica_payload() if isinstance(item, BaseDataClassModel) else item
                     for item in value
                 ]
             elif isinstance(value, BaseDataClassModel):
-                # For nested dataclasses, recurse
                 payload[f.name] = value.to_acumatica_payload()
             elif isinstance(value, dict):
-                # For dictionaries (like action parameters), pass them through directly.
-                # The service method (_post_action) will handle wrapping the inner values.
                 payload[f.name] = value
             else:
-                # For all other simple/primitive types, wrap in {"value": ...}
                 payload[f.name] = {"value": value}
         
         return payload
@@ -85,6 +78,9 @@ class BaseService:
         """
         if not self._client.persistent_login:
             self._client.login()
+        
+        # Add a default timeout to all requests to prevent freezing
+        kwargs.setdefault('timeout', 60)
 
         resp = self._client._request(method, url, **kwargs)
         _raise_with_detail(resp)
@@ -95,7 +91,13 @@ class BaseService:
         if resp.status_code == 204:
             return None
             
-        return resp.json()
+        # Safely handle responses that may not have a JSON body
+        if resp.text:
+            try:
+                return resp.json()
+            except Exception:
+                return resp.text
+        return None
 
     def _get(
         self,
@@ -106,17 +108,12 @@ class BaseService:
         """Performs a GET request."""
         url = self._get_url(api_version)
         
-        # --- THIS IS THE FIX ---
-        # It now correctly handles single IDs, lists of IDs, and no ID.
         if entity_id:
-            # If the ID is a list, join it with commas for the URL.
-            # Otherwise, use the string ID directly.
             keys = ",".join(map(str, entity_id)) if isinstance(entity_id, list) else entity_id
             url = f"{url}/{keys}"
             
         params = options.to_params() if options else None
         
-        # The base _request method handles the actual API call.
         return self._request("get", url, params=params)
 
     def _put(
@@ -159,8 +156,6 @@ class BaseService:
         Performs a DELETE request for a specific entity ID.
         """
         url = f"{self._get_url(api_version)}/{entity_id}"
-        # We call _request and expect a 204 No Content on success,
-        # which will return None. We don't need to do anything with the response.
         self._request("delete", url, verify=self._client.verify_ssl)
 
     def _put_file(
@@ -172,10 +167,20 @@ class BaseService:
         comment: Optional[str] = None
     ) -> None:
         """Performs a PUT request to attach a file."""
-        url = f"{self._get_url(api_version)}/{entity_id}/files/{filename}"
+        # First, get the record to find the file attachment URL
+        record = self._get(entity_id=entity_id, api_version=api_version)
+        
+        # Extract the file upload URL from the _links section
+        try:
+            upload_url_template = record['_links']['files:put']
+        except KeyError:
+            raise ValueError("Could not find file upload URL in the record's _links. Make sure the entity supports file attachments.")
+
+        # The full URL for the request, replacing the {filename} placeholder
+        upload_url = f"{self._client.base_url}{upload_url_template.replace('{filename}', filename)}"
+
         headers = {"Accept": "application/json", "Content-Type": "application/octet-stream"}
         if comment:
             headers["PX-CbFileComment"] = comment
         
-        # This calls the main request method, which handles auth and errors
-        self._request("put", url, headers=headers, data=data, verify=self._client.verify_ssl)
+        self._request("put", upload_url, headers=headers, data=data, verify=self._client.verify_ssl)

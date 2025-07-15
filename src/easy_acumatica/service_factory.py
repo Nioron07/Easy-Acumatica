@@ -1,60 +1,93 @@
+# src/easy_acumatica/service_factory.py
+
 from __future__ import annotations
 from typing import Any, Dict, Union, TYPE_CHECKING
 from functools import update_wrapper
+import textwrap
 
 from .core import BaseService, BaseDataClassModel
 from .odata import QueryOptions
+
 if TYPE_CHECKING:
     from .client import AcumaticaClient
+
+def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any]) -> str:
+    """Generates a detailed docstring from OpenAPI schema details."""
+    summary = details.get("summary", "No summary available.")
+    description = f"{summary} for the {service_name} entity."
+
+    args_section = ["Args:"]
+    # Handle request body for PUT/POST
+    if 'requestBody' in details:
+        try:
+            ref = details['requestBody']['content']['application/json']['schema']['$ref']
+            model_name = ref.split('/')[-1]
+            if "InvokeAction" in operation_id:
+                args_section.append(f"    invocation (models.{model_name}): The action invocation data.")
+            else:
+                args_section.append(f"    data (Union[dict, models.{model_name}]): The entity data to create or update.")
+        except KeyError:
+            args_section.append("    data (dict): The entity data.")
+
+    # Handle path parameters like ID
+    if 'parameters' in details:
+        for param in details['parameters']:
+            if param.get('in') == 'path' and 'id' in param.get('name', '').lower():
+                args_section.append("    entity_id (Union[str, list]): The primary key of the entity.")
+
+    if "PutFile" in operation_id:
+        args_section.append("    filename (str): The name of the file to upload.")
+        args_section.append("    data (bytes): The file content.")
+        args_section.append("    comment (str, optional): A comment about the file.")
+
+    if any(s in operation_id for s in ["GetList", "GetById", "GetByKeys", "PutEntity"]):
+        args_section.append("    options (QueryOptions, optional): OData query options.")
+
+    args_section.append("    api_version (str, optional): The API version to use for this request.")
+
+    # Handle return value
+    returns_section = "Returns:"
+    try:
+        response_schema = details['responses']['200']['content']['application/json']['schema']
+        if '$ref' in response_schema:
+            model_name = response_schema['$ref'].split('/')[-1]
+            returns_section += f"    A dictionary or a {model_name} data model instance."
+        elif response_schema.get('type') == 'array':
+            item_ref = response_schema['items']['$ref']
+            model_name = item_ref.split('/')[-1]
+            returns_section += f"    A list of dictionaries or {model_name} data model instances."
+        else:
+            returns_section += "    The JSON response from the API."
+    except KeyError:
+        if details['responses'].get('204'):
+            returns_section += "    None."
+        else:
+            returns_section += "    The JSON response from the API or None."
+
+
+    full_docstring = f"{description}\n\n"
+    if len(args_section) > 1:
+        full_docstring += "\n".join(args_section) + "\n\n"
+    full_docstring += returns_section
+
+    return textwrap.indent(full_docstring, '    ')
+
+
 class ServiceFactory:
     """
     Dynamically builds service classes and their methods from an Acumatica OpenAPI schema.
-
-    This factory is the core of the dynamic client. It inspects the `paths` section
-    of the `swagger.json` file and programmatically constructs service classes
-    (e.g., `ContactService`, `SalesOrderService`) and attaches methods to them
-    that correspond to the available API operations (e.g., `get_by_id`, `put_entity`).
-
-    The process involves these key steps:
-    1.  **Grouping by Tags**: It first organizes all API paths (like `/Contact/{id}`)
-        by their primary "tag" (e.g., "Contact"). Each tag corresponds to one service.
-    2.  **Dynamic Class Creation**: For each tag, it creates a new class that inherits
-        from the `BaseService`, ensuring all services share the core request logic.
-    3.  **Dynamic Method Creation**: For each operation within a tag (GET, PUT, POST),
-        it creates a corresponding Python method with a proper signature.
-    4.  **Method Binding**: It then attaches these dynamically created methods to the
-        service class instances, making them callable (e.g., `client.contacts.get_by_id(...)`).
     """
     def __init__(self, client: "AcumaticaClient", schema: Dict[str, Any]):
-        """
-        Initializes the factory.
-
-        Args:
-            client: The active AcumaticaClient instance. This is needed so that
-                    the created services can make API calls.
-            schema: The full OpenAPI/swagger JSON schema dictionary.
-        """
         self._client = client
         self._schema = schema
 
     def build_services(self) -> Dict[str, BaseService]:
         """
         Parses the entire schema and generates all corresponding services and methods.
-
-        This is the main entry point for the factory. It orchestrates the entire
-        process of building the service layer.
-
-        Returns:
-            A dictionary mapping the service tag (e.g., "Contact") to its fully
-            constructed service instance.
         """
-        # This dictionary will hold the final, instantiated service objects.
         services: Dict[str, BaseService] = {}
         paths = self._schema.get("paths", {})
-        
-        # --- Step 1: Group all API paths by their primary tag ---
-        # A tag in the schema corresponds to a service (e.g., the "Contact" tag
-        # groups all contact-related operations).
+
         tags_to_ops: Dict[str, list] = {}
         for path, path_info in paths.items():
             for http_method, details in path_info.items():
@@ -63,54 +96,30 @@ class ServiceFactory:
                     if tag not in tags_to_ops: tags_to_ops[tag] = []
                     tags_to_ops[tag].append((path, http_method, details))
 
-        # --- Step 2: Create a service class for each tag ---
         for tag, operations in tags_to_ops.items():
-            # Dynamically create a new class, like `ContactService(BaseService): ...`
             service_class = type(f"{tag}Service", (BaseService,), {
-                # The __init__ method calls the parent BaseService's __init__
                 "__init__": lambda self, client, entity_name=tag: BaseService.__init__(self, client, entity_name)
             })
-            # Instantiate the newly created service class
             services[tag] = service_class(self._client)
-            
-            # --- Step 3: Add methods to the new service instance ---
+
             for path, http_method, details in operations:
                 self._add_method_to_service(services[tag], path, http_method, details)
-        
+
         return services
 
     def _add_method_to_service(self, service: BaseService, path: str, http_method: str, details: Dict[str, Any]):
         """
         Creates a single Python method based on an API operation and attaches it to a service.
-
-        This function inspects an operation's ID (e.g., "Contact_GetById") and its
-        HTTP method (e.g., "get") to determine which base function from `BaseService`
-        to call and what the Python method's signature should be.
-
-        Args:
-            service: The service instance to which the method will be attached.
-            path: The API path for the operation (e.g., "/Contact/{id}").
-            http_method: The HTTP verb (e.g., "get", "put").
-            details: The full schema dictionary for this specific operation.
         """
-        # The operationId provides a unique name for the method.
-        # e.g., "Contact_GetById" -> "getbyid"
         operation_id = details.get("operationId", "")
         if not operation_id or '_' not in operation_id: return
-        # Get the part of the name to convert (e.g., "GetList", "GetById")
+
         name_part = operation_id.split('_', 1)[-1]
-        
-        # Convert from PascalCase/CamelCase to snake_case
-        # e.g., "GetList" -> "get_list", "InvokeAction_TestAction" -> "invoke_action_test_action"
         method_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name_part]).lstrip('_')
-        # Replace any double underscores from the original name with a single one
         method_name = method_name.replace('__', '_')
 
-        # --- Step 4: Define Method Templates with Correct Signatures ---
-        # These are templates for the real methods we will generate. Each one has the
-        # correct arguments for its corresponding operation and calls the
-        # appropriate underlying function in BaseService (e.g., _get, _put).
-        
+        docstring = _generate_docstring(service.entity_name, operation_id, details)
+
         def get_list(self, options: QueryOptions | None = None, api_version: str | None = None):
             return self._get(options=options, api_version=api_version)
 
@@ -122,7 +131,7 @@ class ServiceFactory:
 
         def delete_by_id(self, entity_id: Union[str, list], api_version: str | None = None):
             return self._delete(entity_id=entity_id, api_version=api_version)
-        
+
         def put_file(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None):
             return self._put_file(entity_id, filename, data, comment=comment, api_version=api_version)
 
@@ -132,13 +141,12 @@ class ServiceFactory:
             entity_payload = payload.get('entity', {})
             params_payload = payload.get('parameters')
             return self._post_action(action_name, entity_payload, parameters=params_payload, api_version=api_version)
-        
+
         def get_schema(self, api_version: str | None = None):
             return self._get_schema(api_version=api_version)
 
-        # --- Step 5: Select the Correct Template Based on the API Operation ---
         template = None
-        if "PutFile" in operation_id:  # This condition was missing
+        if "PutFile" in operation_id:
             template = put_file
         elif "GetAdHocSchema" in operation_id:
             template = get_schema
@@ -152,16 +160,12 @@ class ServiceFactory:
             template = get_list
         elif "DeleteById" in operation_id or "DeleteByKeys" in operation_id:
             template = delete_by_id
-        
-        if not template:
-            return # Skip if no pattern matches
 
-        # --- Step 6: Bind the Method to the Service Instance ---
-        # `update_wrapper` copies metadata (like the docstring and name) from the
-        # template to our new dynamic method.
+        if not template:
+            return
+
+        template.__doc__ = docstring
         final_method = update_wrapper(template, template)
         final_method.__name__ = method_name
-        
-        # `__get__` binds the function to the instance, making `self` work correctly.
-        # This effectively turns our `final_method` into a real instance method.
+
         setattr(service, method_name, final_method.__get__(service, BaseService))
