@@ -96,7 +96,14 @@ class ServiceFactory:
         # e.g., "Contact_GetById" -> "getbyid"
         operation_id = details.get("operationId", "")
         if not operation_id or '_' not in operation_id: return
-        method_name = operation_id.split('_', 1)[-1].lower()
+        # Get the part of the name to convert (e.g., "GetList", "GetById")
+        name_part = operation_id.split('_', 1)[-1]
+        
+        # Convert from PascalCase/CamelCase to snake_case
+        # e.g., "GetList" -> "get_list", "InvokeAction_TestAction" -> "invoke_action_test_action"
+        method_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name_part]).lstrip('_')
+        # Replace any double underscores from the original name with a single one
+        method_name = method_name.replace('__', '_')
 
         # --- Step 4: Define Method Templates with Correct Signatures ---
         # These are templates for the real methods we will generate. Each one has the
