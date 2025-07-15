@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, TYPE_CHECKING
 from functools import update_wrapper
 
 from .core import BaseService, BaseDataClassModel
 from .odata import QueryOptions
-
+if TYPE_CHECKING:
+    from .client import AcumaticaClient
 class ServiceFactory:
     """
     Dynamically builds service classes and their methods from an Acumatica OpenAPI schema.
