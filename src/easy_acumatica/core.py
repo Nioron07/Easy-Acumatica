@@ -29,20 +29,23 @@ class BaseDataClassModel:
             if value is None:
                 continue
 
-            # --- THIS IS THE CORE FIX ---
-            # Correctly handle lists vs. other types.
+           # We add checks for list and dict to prevent them from being
+            # wrapped in {"value": ...}, while still processing their contents.
             if isinstance(value, list):
-                # For lists, serialize each item but do not wrap the list itself in {"value": ...}
-                if value and isinstance(value[0], BaseDataClassModel):
-                    payload[f.name] = [item.to_acumatica_payload() for item in value]
-                else:
-                    # If it's a list of simple types (though less common in this API)
-                    payload[f.name] = value
+                # For lists, serialize each item but do not wrap the list itself
+                payload[f.name] = [
+                    item.to_acumatica_payload() if isinstance(item, BaseDataClassModel) else item
+                    for item in value
+                ]
             elif isinstance(value, BaseDataClassModel):
                 # For nested dataclasses, recurse
                 payload[f.name] = value.to_acumatica_payload()
+            elif isinstance(value, dict):
+                # For dictionaries (like action parameters), pass them through directly.
+                # The service method (_post_action) will handle wrapping the inner values.
+                payload[f.name] = value
             else:
-                # For all other simple types, wrap in {"value": ...}
+                # For all other simple/primitive types, wrap in {"value": ...}
                 payload[f.name] = {"value": value}
         
         return payload
@@ -159,3 +162,20 @@ class BaseService:
         # We call _request and expect a 204 No Content on success,
         # which will return None. We don't need to do anything with the response.
         self._request("delete", url, verify=self._client.verify_ssl)
+
+    def _put_file(
+        self,
+        entity_id: str,
+        filename: str,
+        data: bytes,
+        api_version: Optional[str] = None,
+        comment: Optional[str] = None
+    ) -> None:
+        """Performs a PUT request to attach a file."""
+        url = f"{self._get_url(api_version)}/{entity_id}/files/{filename}"
+        headers = {"Accept": "application/json", "Content-Type": "application/octet-stream"}
+        if comment:
+            headers["PX-CbFileComment"] = comment
+        
+        # This calls the main request method, which handles auth and errors
+        self._request("put", url, headers=headers, data=data, verify=self._client.verify_ssl)

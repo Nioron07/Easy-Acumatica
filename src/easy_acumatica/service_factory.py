@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, TYPE_CHECKING
 from functools import update_wrapper
 
 from .core import BaseService, BaseDataClassModel
 from .odata import QueryOptions
-
+if TYPE_CHECKING:
+    from .client import AcumaticaClient
 class ServiceFactory:
     """
     Dynamically builds service classes and their methods from an Acumatica OpenAPI schema.
@@ -96,7 +97,14 @@ class ServiceFactory:
         # e.g., "Contact_GetById" -> "getbyid"
         operation_id = details.get("operationId", "")
         if not operation_id or '_' not in operation_id: return
-        method_name = operation_id.split('_', 1)[-1].lower()
+        # Get the part of the name to convert (e.g., "GetList", "GetById")
+        name_part = operation_id.split('_', 1)[-1]
+        
+        # Convert from PascalCase/CamelCase to snake_case
+        # e.g., "GetList" -> "get_list", "InvokeAction_TestAction" -> "invoke_action_test_action"
+        method_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name_part]).lstrip('_')
+        # Replace any double underscores from the original name with a single one
+        method_name = method_name.replace('__', '_')
 
         # --- Step 4: Define Method Templates with Correct Signatures ---
         # These are templates for the real methods we will generate. Each one has the
@@ -114,6 +122,9 @@ class ServiceFactory:
 
         def delete_by_id(self, entity_id: Union[str, list], api_version: str | None = None):
             return self._delete(entity_id=entity_id, api_version=api_version)
+        
+        def put_file(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None):
+            return self._put_file(entity_id, filename, data, comment=comment, api_version=api_version)
 
         def invoke_action(self, invocation: BaseDataClassModel, api_version: str | None = None):
             action_name = path.split('/')[-1]
@@ -127,7 +138,9 @@ class ServiceFactory:
 
         # --- Step 5: Select the Correct Template Based on the API Operation ---
         template = None
-        if "GetAdHocSchema" in operation_id:
+        if "PutFile" in operation_id:  # This condition was missing
+            template = put_file
+        elif "GetAdHocSchema" in operation_id:
             template = get_schema
         elif "InvokeAction" in operation_id:
             template = invoke_action
