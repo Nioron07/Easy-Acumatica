@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
 from .helpers import _raise_with_detail
-from .odata import QueryOptions
+from .odata import QueryOptions, F, Filter
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
@@ -184,3 +184,14 @@ class BaseService:
             headers["PX-CbFileComment"] = comment
         
         self._request("put", upload_url, headers=headers, data=data, verify=self._client.verify_ssl)
+
+    def _get_files(
+        self,
+        entity_id: str,
+        api_version: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieves files attached to a specific entity."""
+        options = QueryOptions(expand=["files"], select=["files"])
+
+        record = self._get(entity_id=entity_id, options=options, api_version=api_version)
+        return record.get("files", [])
