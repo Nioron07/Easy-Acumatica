@@ -4,15 +4,30 @@ from __future__ import annotations
 from typing import Any, Dict, Union, TYPE_CHECKING
 from functools import update_wrapper
 import textwrap
-
+import re
 from .core import BaseService, BaseDataClassModel
 from .odata import QueryOptions
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
 
-def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any]) -> str:
+def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False) -> str:
     """Generates a detailed docstring from OpenAPI schema details."""
+    
+    if is_get_files:
+        description = f"Retrieves files attached to a {service_name} entity."
+        args_section = [
+            "Args:",
+            "    entity_id (str): The primary key of the entity.",
+            "    api_version (str, optional): The API version to use for this request."
+        ]
+        returns_section = "Returns:\n    A list of file information dictionaries."
+        full_docstring = f"{description}\n\n"
+        full_docstring += "\n".join(args_section) + "\n\n"
+        full_docstring += returns_section
+        return textwrap.indent(full_docstring, '    ')
+
+
     summary = details.get("summary", "No summary available.")
     description = f"{summary} for the {service_name} entity."
 
@@ -36,6 +51,7 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
                 args_section.append("    entity_id (Union[str, list]): The primary key of the entity.")
 
     if "PutFile" in operation_id:
+        args_section.append("    entity_id (str): The primary key of the entity.")
         args_section.append("    filename (str): The name of the file to upload.")
         args_section.append("    data (bytes): The file content.")
         args_section.append("    comment (str, optional): A comment about the file.")
@@ -46,7 +62,7 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
     args_section.append("    api_version (str, optional): The API version to use for this request.")
 
     # Handle return value
-    returns_section = "Returns:"
+    returns_section = "Returns:\n"
     try:
         response_schema = details['responses']['200']['content']['application/json']['schema']
         if '$ref' in response_schema:
@@ -107,6 +123,18 @@ class ServiceFactory:
 
         return services
 
+    def _add_get_files_method(self, service: BaseService):
+        """Adds the get_files method to a service."""
+
+        def get_files(self, entity_id: str, api_version: str | None = None):
+            return self._get_files(entity_id=entity_id, api_version=api_version)
+
+        docstring = _generate_docstring(service.entity_name, "", {}, is_get_files=True)
+        get_files.__doc__ = docstring
+        final_method = update_wrapper(get_files, get_files)
+        final_method.__name__ = "get_files"
+        setattr(service, "get_files", final_method.__get__(service, BaseService))
+
     def _add_method_to_service(self, service: BaseService, path: str, http_method: str, details: Dict[str, Any]):
         """
         Creates a single Python method based on an API operation and attaches it to a service.
@@ -115,7 +143,8 @@ class ServiceFactory:
         if not operation_id or '_' not in operation_id: return
 
         name_part = operation_id.split('_', 1)[-1]
-        method_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name_part]).lstrip('_')
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name_part)
+        method_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
         method_name = method_name.replace('__', '_')
 
         docstring = _generate_docstring(service.entity_name, operation_id, details)
@@ -166,6 +195,7 @@ class ServiceFactory:
         template = None
         if "PutFile" in operation_id:
             template = put_file
+            self._add_get_files_method(service)
         elif "GetAdHocSchema" in operation_id:
             template = get_schema
         elif "InvokeAction" in operation_id:

@@ -1,4 +1,4 @@
-# src/easy_acumatica/models/filter_builder.py
+# src/easy_acumatica/models/odata.py
 """
 easy_acumatica.models.filter_builder
 ====================================
