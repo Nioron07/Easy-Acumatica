@@ -120,6 +120,24 @@ class ServiceFactory:
             payload = invocation.build()
             entity_payload = payload.get('entity', {})
             params_payload = payload.get('parameters')
+
+
+            # Clean entity_payload
+            entity_payload = {
+                k: v for k, v in payload.get("entity", {}).items()
+                if (
+                    isinstance(v, dict) and (
+                        ("value" in v and v["value"] not in [None, "", [], {}]) or
+                        ("value" not in v and any(subv not in [None, "", [], {}] for subv in v.values()))
+                    )
+                ) or (
+                    isinstance(v, list) and any(item not in [None, "", [], {}] for item in v)
+                ) or (
+                    not isinstance(v, (dict, list)) and v not in [None, "", [], {}]
+                )
+            }
+            print(entity_payload)
+                
             return self._post_action(action_name, entity_payload, parameters=params_payload, api_version=api_version)
         
         def get_schema(self, api_version: str | None = None):
