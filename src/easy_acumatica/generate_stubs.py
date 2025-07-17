@@ -2,8 +2,8 @@ import argparse
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any, Dict
-
+from typing import Any, Dict, List
+import re
 import requests
 
 project_root = Path(__file__).resolve().parent
@@ -11,8 +11,22 @@ sys.path.insert(0, str(project_root / 'src'))
 
 from easy_acumatica.helpers import _raise_with_detail
 
-def _generate_service_docstring(service_name: str, operation_id: str, details: Dict[str, Any]) -> str:
+def _generate_service_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False) -> str:
     """Generates a detailed docstring from OpenAPI schema details."""
+    if is_get_files:
+        description = f"Retrieves files attached to a {service_name} entity."
+        args_section = [
+            "Args:",
+            "    entity_id (str): The primary key of the entity.",
+            "    api_version (str, optional): The API version to use for this request."
+        ]
+        returns_section = "Returns:\n    A list of file information dictionaries."
+        full_docstring = f"{description}\n\n"
+        full_docstring += "\n".join(args_section) + "\n\n"
+        full_docstring += returns_section
+        return textwrap.indent(full_docstring, '    ')
+
+
     summary = details.get("summary", "No summary available.")
     description = f"{summary} for the {service_name} entity."
 
@@ -34,6 +48,7 @@ def _generate_service_docstring(service_name: str, operation_id: str, details: D
                 args_section.append("    entity_id (Union[str, list]): The primary key of the entity.")
 
     if "PutFile" in operation_id:
+        args_section.append("    entity_id (str): The primary key of the entity.")
         args_section.append("    filename (str): The name of the file to upload.")
         args_section.append("    data (bytes): The file content.")
         args_section.append("    comment (str, optional): A comment about the file.")
@@ -43,7 +58,7 @@ def _generate_service_docstring(service_name: str, operation_id: str, details: D
 
     args_section.append("    api_version (str, optional): The API version to use for this request.")
 
-    returns_section = "Returns:"
+    returns_section = "Returns:\n"
     try:
         response_schema = details['responses']['200']['content']['application/json']['schema']
         if '$ref' in response_schema:
@@ -191,7 +206,7 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
 
     pyi_content = [
         "from __future__ import annotations",
-        "from typing import Any, Union, List",
+        "from typing import Any, Union, List, Dict",
         "from .core import BaseService, BaseDataClassModel",
         "from .odata import QueryOptions",
         "from . import models\n"
@@ -201,16 +216,20 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
         service_class_name = f"{tag}Service"
         pyi_content.append(f"\nclass {service_class_name}(BaseService):")
 
+        has_put_file_method = any("PutFile" in op_id for op_id in operations)
+
         if not operations:
             pyi_content.append("    ...")
         else:
             for op_id, (path, http_method, details) in sorted(operations.items()):
                 name_part = op_id.split('_', 1)[-1]
-                method_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name_part]).lstrip('_')
+                s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name_part)
+                method_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
                 method_name = method_name.replace('__', '_')
 
-                docstring = textwrap.indent(_generate_service_docstring(tag, op_id, details), '        ')
-
+                docstring_content = _generate_service_docstring(tag, op_id, details)
+                docstring = textwrap.indent(docstring_content, '        ')
+                
                 method_signature = ""
                 if "InvokeAction" in op_id:
                     ref = details.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
@@ -233,6 +252,17 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
 
                 if method_signature:
                     pyi_content.append(method_signature)
+
+            if has_put_file_method:
+                get_files_docstring_content = _generate_service_docstring(tag, "", {}, is_get_files=True)
+                get_files_docstring = textwrap.indent(get_files_docstring_content, '        ')
+                get_files_signature = (
+                    f"    def get_files(self, entity_id: str, api_version: str | None = None) -> List[Dict[str, Any]]:\n"
+                    f"        \"\"\"\n{get_files_docstring}\n        \"\"\"\n"
+                    f"        ..."
+                )
+                pyi_content.append(get_files_signature)
+
 
     pyi_content.append("\nclass AcumaticaClient:")
     for tag in sorted(tags_to_ops.keys()):
