@@ -31,23 +31,11 @@ Not using Python? See the NPM version by joeBewon [here](https://easyacumatica.c
 
 MIT-licensed (see [LICENSE](LICENSE) for details)
 
-## Endpoints Remaining
-JournalTransaction
-Opportunity
-PayGroup
-PaymentMethod
-PayPeriod
-PayrollBatch
-PayrollUnionLocal
-ProductionOrderDatesProcess
-ProductionOrderDetail
-ProFormaInvoice
-Project
-ProjectBudget
-ProjectTask
-PTOBank
-SalesInvoice
-Vendor
+## Generate Stubs for Development
+
+```bash
+easy-acumatica-stubs --url "https://*domain*.acumatica.com" --username "*username*" --password "*password*" --tenant "*Tenant*" --endpoint-version "*api version*"
+```
 
 ## Easy Acumatica-Chan says "Thanks for Downloading!"
 

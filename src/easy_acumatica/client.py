@@ -2,106 +2,58 @@
 ======================
 
 A lightweight wrapper around the **contract-based REST API** of
-Acumatica ERP.  The :class:`AcumaticaClient` class handles the entire
-session lifecycle:
+Acumatica ERP. The :class:`AcumaticaClient` class handles the entire
+session lifecycle.
 
-* opens a persistent :class:`requests.Session`;
-* logs in automatically when the object is created;
-* exposes typed *sub-services* (for example, :pyattr:`contacts`);
-* guarantees a clean logout either explicitly via
-  :pymeth:`logout` or implicitly on interpreter shutdown.
+Its key features include:
+* Opens a persistent :class:`requests.Session` for efficient communication.
+* Handles login and logout automatically.
+* Dynamically generates data models (e.g., `Contact`, `Bill`) from the live
+    endpoint schema, ensuring they are always up-to-date and include custom fields.
+* Dynamically generates service layers (e.g., `client.contacts`, `client.bills`)
+    with methods that directly correspond to available API operations.
+* Guarantees a clean logout either explicitly via :pymeth:`logout` or implicitly
+    on interpreter shutdown.
 
 Usage example
 -------------
 >>> from easy_acumatica import AcumaticaClient
+>>> # Initialization connects to the API and builds all models and services
 >>> client = AcumaticaClient(
 ...     base_url="https://demo.acumatica.com",
 ...     username="admin",
 ...     password="Pa$$w0rd",
-...     tenant="Company",
-...     branch="HQ")
->>> contact = client.contacts.get_contacts("24.200.001")
->>> client.logout()  # optional - will also run automatically
+...     tenant="Company")
+>>>
+>>> # Use a dynamically generated model to create a new record
+>>> new_bill = client.models.Bill(Vendor="MYVENDOR01", Type="Bill")
+>>>
+>>> # Use a dynamically generated service method to send the request
+>>> created_bill = client.bills.put_entity(new_bill)
+>>>
+>>> client.logout()
 """
 from __future__ import annotations
-
 import atexit
-from typing import Optional
-
+from typing import Optional, Dict, Any
 import requests
 
-# Sub‑services -------------------------------------------------------------
-from .sub_services.records import RecordsService
-from .sub_services.contacts import ContactsService
-from .sub_services.inquiries import InquiriesService
-from .sub_services.customers import CustomersService
-from .sub_services.codes import CodesService
-from .sub_services.files import FilesService
-from .sub_services.accounts import AccountService
-from .sub_services.transactions import TransactionsService
-from .sub_services.actions import ActionsService
-from .sub_services.activities import ActivitiesService
-from .sub_services.payments import PaymentsService
-from .sub_services.invoices import InvoicesService
-from .sub_services.employees import EmployeesService
-from .sub_services.leads import LeadsService
-from .sub_services.tax_categories import TaxCategoryService
-from .sub_services.ledgers import LedgersService
-from .sub_services.cases import CasesService
-from .sub_services.companies import CompaniesService
-from .sub_services.manufacturing import ManufacturingService
-from .sub_services.inventory import InventoryService
-from .sub_services.sales_orders import SalesOrdersService
-from .sub_services.shipments import ShipmentsService
-from .sub_services.stock_items import StockItemsService
-from .sub_services.service_orders import ServiceOrdersService
-from .sub_services.purchase_orders import PurchaseOrdersService
-from .sub_services.purchase_receipts import PurchaseReceiptsService
-from .sub_services.time_entries import TimeEntriesService
-from .sub_services.work_calendars import WorkCalendarsService
-from .sub_services.work_locations import WorkLocationsService
-from .sub_services.bills import BillsService
-from .sub_services.boms import BomsService
-from .sub_services.business_accounts import BusinessAccountsService
+from . import models
+from .model_factory import ModelFactory
+from .service_factory import ServiceFactory
 from .helpers import _raise_with_detail
 
 __all__ = ["AcumaticaClient"]
 
+class AcumaticaClient:
+    """
+    High-level convenience wrapper around Acumatica's REST endpoint.
 
-class AcumaticaClient:  # pylint: disable=too-few-public-methods
-    """High‑level convenience wrapper around Acumatica's REST endpoint.
-
-    The client manages a single authenticated HTTP session.  A successful
-    instantiation performs an immediate **login** call; conversely a
-    **logout** is registered with :pymod:`atexit` so that resources are
-    freed even if the caller forgets to do so.
-
-    Parameters
-    ----------
-    base_url : str
-        Root URL of the Acumatica site, e.g. ``https://example.acumatica.com``.
-    username : str
-        User name recognised by Acumatica.
-    password : str
-        Corresponding password.
-    tenant : str
-        Target tenant (company) code.
-    branch : str
-        Branch code within the tenant.
-    locale : str | None, optional
-        UI locale, such as ``"en-US"``.  When *None* the server default is
-        used (``en-US`` on most installations).
-    verify_ssl : bool, default ``True``
-        Whether to validate TLS certificates when talking to the server.
-    persistent_login : bool, default ``True``
-        Whether to login once on client creation and only logout at program exit. 
-        If false, client will login and logout before and after every function call.
-    retry_on_idle_logout : bool, default ``True``
-        Whether to retry function call if it recieves a 401 (Unathorized) error.
+    Manages a single authenticated HTTP session and dynamically builds out its
+    own methods and data models based on the API schema of the target instance.
     """
 
-    # ──────────────────────────────────────────────────────────────────
-    _atexit_registered: bool = False  # class‑level guard
+    _atexit_registered: bool = False
 
     def __init__(
         self,
@@ -109,13 +61,34 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         username: str,
         password: str,
         tenant: str,
-        branch: str,
+        branch: Optional[str] = None,
         locale: Optional[str] = None,
         verify_ssl: bool = True,
         persistent_login: bool = True,
         retry_on_idle_logout: bool = True,
+        endpoint_name: str = "Default",
+        endpoint_version: Optional[str] = None
     ) -> None:
-        # --- public attributes --------------------------------------
+        """
+        Initializes the client, logs in, and builds the dynamic services.
+
+        Args:
+            base_url: Root URL of the Acumatica site (e.g., `https://example.acumatica.com`).
+            username: User name recognized by Acumatica.
+            password: Corresponding password.
+            tenant: Target tenant (company) code.
+            branch: Branch code within the tenant (optional).
+            locale: UI locale, such as "en-US" (optional).
+            verify_ssl: Whether to validate TLS certificates.
+            persistent_login: If True, logs in once on creation and logs out at exit.
+                              If False, logs in and out for every single request.
+            retry_on_idle_logout: If True, automatically re-login and retry a request once
+                                  if it fails with a 401 Unauthorized error.
+            endpoint_name: The name of the API endpoint to use (e.g., "Default").
+            endpoint_version: A specific version of the endpoint to use (e.g., "24.200.001").
+                              If not provided, the latest version will be used.
+        """
+        # --- 1. Set up public attributes ---
         self.base_url: str = base_url.rstrip("/")
         self.session: requests.Session = requests.Session()
         self.verify_ssl: bool = verify_ssl
@@ -124,167 +97,130 @@ class AcumaticaClient:  # pylint: disable=too-few-public-methods
         self.password: str = password
         self.persistent_login: bool = persistent_login
         self.retry_on_idle_logout: bool = retry_on_idle_logout
+        self.endpoints: Dict[str, Dict] = {}
+        # The 'models' attribute points to the models module, which will be
+        # populated with dynamic dataclasses.
+        self.models = models
 
-        # --- payload construction -----------------------------------
-        payload = {
-            "name": username,
-            "password": password,
-            "tenant": tenant,
-            "branch": branch,
-            **({"locale": locale} if locale else {}),
-        }
-        # Drop any *None* values so we don't send them in the JSON body
-        self._login_payload: dict[str, str] = {
-            k: v for k, v in payload.items() if v is not None
-        }
-
+        # --- 2. Construct the login payload ---
+        payload = {"name": username, "password": password, "tenant": tenant}
+        if branch: payload["branch"] = branch
+        if locale: payload["locale"] = locale
+        self._login_payload: dict[str, str] = {k: v for k, v in payload.items() if v is not None}
         self._logged_in: bool = False
 
-        # Perform an immediate login; will raise for HTTP errors
-        if persistent_login:
+        # --- 3. Initial Login ---
+        # For persistent sessions, log in immediately. For non-persistent sessions,
+        # the _request wrapper will handle login/logout for each call.
+        if self.persistent_login:
             self.login()
 
-        # Ensure we always log out exactly once on normal interpreter exit
+        # --- 4. Discover Endpoint Information ---
+        # Fetch all available endpoints and their latest versions.
+        self._populate_endpoint_info()
+        target_version = endpoint_version or self.endpoints.get(endpoint_name, {}).get('version')
+        if not target_version:
+            raise ValueError(f"Could not determine a version for endpoint '{endpoint_name}'.")
+
+        # --- 5. Fetch Schema and Build Dynamic Components ---
+        # This is the core of the dynamic architecture.
+        schema = self._fetch_schema(endpoint_name, target_version)
+        self._build_dynamic_models(schema)
+        self._build_dynamic_services(schema)
+
+        # --- 6. Register atexit hook for clean logout ---
         if not AcumaticaClient._atexit_registered:
             atexit.register(self._atexit_logout)
             AcumaticaClient._atexit_registered = True
 
-        # Service proxies --------------------------------------------------
-        self.contacts: ContactsService = ContactsService(self)
-        self.records: RecordsService = RecordsService(self)
-        self.inquiries: InquiriesService = InquiriesService(self)
-        self.customers: CustomersService = CustomersService(self)
-        self.codes: CodesService = CodesService(self)
-        self.files: FilesService = FilesService(self)
-        self.accounts: AccountService = AccountService(self)
-        self.transactions: TransactionsService = TransactionsService(self)
-        self.actions: ActionsService = ActionsService(self)
-        self.activities: ActivitiesService = ActivitiesService(self)
-        self.payments: PaymentsService = PaymentsService(self)
-        self.invoices: InvoicesService = InvoicesService(self)
-        self.employees: EmployeesService = EmployeesService(self)
-        self.leads: LeadsService = LeadsService(self)
-        self.tax_categories: TaxCategoryService = TaxCategoryService(self)
-        self.ledgers: LedgersService = LedgersService(self)
-        self.cases: CasesService = CasesService(self)
-        self.companies: CompaniesService = CompaniesService(self)
-        self.manufacturing: ManufacturingService = ManufacturingService(self)
-        self.inventory: InventoryService = InventoryService(self)
-        self.sales_orders: SalesOrdersService = SalesOrdersService(self)
-        self.shipments: ShipmentsService = ShipmentsService(self)
-        self.stock_items: StockItemsService = StockItemsService(self)
-        self.service_orders: ServiceOrdersService = ServiceOrdersService(self)
-        self.purchase_orders: PurchaseOrdersService = PurchaseOrdersService(self)
-        self.purchase_receipts: PurchaseReceiptsService = PurchaseReceiptsService(self)
-        self.time_entries: TimeEntriesService = TimeEntriesService(self)
-        self.work_calendars: WorkCalendarsService = WorkCalendarsService(self)
-        self.work_locations: WorkLocationsService = WorkLocationsService(self)
-        self.bills: BillsService = BillsService(self)
-        self.boms: BomsService = BomsService(self)
-        self.business_accounts: BusinessAccountsService = BusinessAccountsService(self)
+    def _populate_endpoint_info(self):
+        """Retrieves and stores the latest version for each available endpoint."""
+        url = f"{self.base_url}/entity"
+        # Use the internal _request method to handle auth and errors.
+        endpoint_data = self._request("get", url).json()
+        
+        for endpoint in endpoint_data.get('endpoints', []):
+            name = endpoint.get('name')
+            # Store the endpoint only if it's new or a higher version than what we have.
+            if name and (name not in self.endpoints or endpoint.get('version', '0') > self.endpoints[name].get('version', '0')):
+                self.endpoints[name] = endpoint
 
-    # ──────────────────────────────────────────────────────────────────
-    # Session control helpers
-    # ──────────────────────────────────────────────────────────────────
+    def _fetch_schema(self, endpoint_name: str, version: str) -> Dict[str, Any]:
+        """Fetches the OpenAPI schema for a given endpoint."""
+        schema_url = f"{self.base_url}/entity/{endpoint_name}/{version}/swagger.json"
+        return self._request("get", schema_url).json()
+
+    def _build_dynamic_models(self, schema: Dict[str, Any]):
+        """Populates the 'models' module with dynamically generated dataclasses."""
+        factory = ModelFactory(schema)
+        model_dict = factory.build_models()
+        # Attach each generated class (e.g., Contact, Address) to the models module.
+        for name, model_class in model_dict.items():
+            setattr(self.models, name, model_class)
+
+    def _build_dynamic_services(self, schema: Dict[str, Any]):
+        """Attaches dynamically created services to the client instance."""
+        factory = ServiceFactory(self, schema)
+        services_dict = factory.build_services()
+        for name, service_instance in services_dict.items():
+            # Convert PascalCase (e.g., SalesOrder) to snake_case (e.g., sales_orders)
+            # to use as the Python attribute name.
+            attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_') + 's'
+            setattr(self, attr_name, service_instance)
+
     def login(self) -> int:
-        """Authenticate and obtain a cookie‑based session.
-
-        Returns
-        -------
-        int
-            HTTP status code (200 for the first login, 204 if we were
-            already logged in).
-        """
+        """Authenticates and obtains a cookie-based session."""
         if not self._logged_in:
             url = f"{self.base_url}/entity/auth/login"
-            response = self.session.post(
-                url, json=self._login_payload, verify=self.verify_ssl
-            )
+            response = self.session.post(url, json=self._login_payload, verify=self.verify_ssl)
             response.raise_for_status()
             self._logged_in = True
             return response.status_code
-        return 204  # NO CONTENT – session already active
+        return 204 # Already logged in
 
-    # ------------------------------------------------------------------
     def logout(self) -> int:
-        """Log out and invalidate the server-side session.
-
-        This method is **idempotent**: calling it more than once is safe
-        and will simply return HTTP 204 after the first successful call.
-
-        Returns
-        -------
-        int
-            HTTP status code (200 on success, 204 if no active session).
-        """
+        """Logs out and invalidates the server-side session."""
         if self._logged_in:
             url = f"{self.base_url}/entity/auth/logout"
             response = self.session.post(url, verify=self.verify_ssl)
-            response.raise_for_status()
-            self.session.cookies.clear()  # client‑side cleanup
+            self.session.cookies.clear()
             self._logged_in = False
             return response.status_code
-        return 204  # NO CONTENT – nothing to do
+        return 204 # Already logged out
 
-    # ------------------------------------------------------------------
     def _atexit_logout(self) -> None:
-        """Internal helper attached to :pymod:`atexit`.
-
-        Guaranteed to run exactly once per Python process to release the
-        server session.  All exceptions are swallowed because the Python
-        interpreter is already shutting down.
-        """
+        """Internal helper attached to `atexit` to guarantee a clean logout."""
         try:
             self.logout()
         except Exception:
-            # Avoid noisy tracebacks at interpreter shutdown
+            # Swallow exceptions during shutdown to avoid noisy tracebacks.
             pass
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
-        Perform a session request, raise on error, but if we get a 401
-        and retry_on_idle_logout is True, automatically re-login and retry once.
+        The central method for making all API requests.
+        
+        Handles the session lifecycle (login/logout) for non-persistent
+        connections and provides automatic re-authentication on session timeout.
         """
-        # first attempt
-        resp = getattr(self.session, method)(url, **kwargs)
-        try:
-            _raise_with_detail(resp)
-            return resp
-        except RuntimeError as exc:
-            # only retry on 401 if enabled
-            if resp.status_code == 401 and self.retry_on_idle_logout:
-                # force a fresh login
-                self._logged_in = False
-                self.login()
-                # retry exactly once
-                resp = getattr(self.session, method)(url, **kwargs)
-                _raise_with_detail(resp)
-                return resp
-            # re-raise any other error
-            raise
-    def get_endpoint_info(self):
-        """
-        Retrieves the Acumatica build version and a list of all endpoints
-        and endpoint versions
-
-        Args:
-            None
-
-        Returns:
-            A dictionary where "version" contains Acumatica build information
-            and "endpoints" which is a list of dictionaries, where each dictionary is an endpoint.
-        """
+        # For non-persistent mode, ensure we are logged in before the request.
         if not self.persistent_login:
             self.login()
 
-        url = f"{self.base_url}/entity"
-
-        resp = self._request("get", url, verify=self.verify_ssl)
-        _raise_with_detail(resp)
-
-        if not self.persistent_login:
-            self.logout()
-
-        return resp.json()
-
-#-- Test Commit 1 --#
+        try:
+            # Make the actual HTTP request using the session object.
+            resp = self.session.request(method, url, **kwargs)
+            
+            # If we get a 401 Unauthorized, the session likely expired.
+            if resp.status_code == 401 and self.retry_on_idle_logout:
+                self._logged_in = False
+                self.login() # Re-authenticate
+                resp = self.session.request(method, url, **kwargs) # Retry the request once
+            
+            # Check the final response for any other errors.
+            _raise_with_detail(resp)
+            return resp
+        finally:
+            # For non-persistent mode, log out after the request is complete.
+            if not self.persistent_login:
+                self.logout()
