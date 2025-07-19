@@ -68,7 +68,7 @@ class Filter:
             return value.expr
         if isinstance(value, str):
             # Escape single quotes for OData compliance
-            return f"'{value.replace('\'', '\'\'')}"
+            return f'"{value.replace('"', '""')}"'
         if isinstance(value, bool):
             return "true" if value else "false"
         if value is None:
