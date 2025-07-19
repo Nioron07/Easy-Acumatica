@@ -10,22 +10,22 @@ def get_swagger_json():
         "info": {"title": "Test/v1", "version": "1"},
         "paths": {
             "/Test": {
-                "get": {"tags": ["Test"], "operationId": "Test_GetList", "responses": {"200": {"description": "Success"}}},
-                "put": {"tags": ["Test"], "operationId": "Test_PutEntity", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestModel"}}}}, "responses": {"200": {"description": "Success"}}},
+                "get": {"tags": ["Test"], "operationId": "Test_GetList", "summary": "Retrieves a list of Test entities.", "responses": {"200": {"description": "Success"}}},
+                "put": {"tags": ["Test"], "operationId": "Test_PutEntity", "summary": "Creates or updates a Test entity.", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestModel"}}}}, "responses": {"200": {"description": "Success"}}},
             },
             "/Test/{id}": {
-                "get": {"tags": ["Test"], "operationId": "Test_GetById", "responses": {"200": {"description": "Success"}}},
-                "delete": {"tags": ["Test"], "operationId": "Test_DeleteById", "responses": {"204": {"description": "Success"}}},
+                "get": {"tags": ["Test"], "operationId": "Test_GetById", "summary": "Retrieves a Test entity by its ID.", "responses": {"200": {"description": "Success"}}},
+                "delete": {"tags": ["Test"], "operationId": "Test_DeleteById", "summary": "Deletes a Test entity by its ID.", "responses": {"204": {"description": "Success"}}},
             },
             "/Test/TestAction": {
-                "post": {"tags": ["Test"], "operationId": "Test_InvokeAction_TestAction", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestAction"}}}}, "responses": {"204": {"description": "Success"}}}
+                "post": {"tags": ["Test"], "operationId": "Test_InvokeAction_TestAction", "summary": "Invokes the TestAction on a Test entity.", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/TestAction"}}}}, "responses": {"204": {"description": "Success"}}}
             },
             "/Test/$adHocSchema": {
-                "get": {"tags": ["Test"], "operationId": "Test_GetAdHocSchema", "responses": {"200": {"description": "Success"}}}
+                "get": {"tags": ["Test"], "operationId": "Test_GetAdHocSchema", "summary": "Retrieves the ad-hoc schema for a Test entity.", "responses": {"200": {"description": "Success"}}}
             },
             "/Test/{ids}/files/{filename}": {
                 "put": {
-                    "tags": ["Test"], "operationId": "Test_PutFile",
+                    "tags": ["Test"], "operationId": "Test_PutFile", "summary": "Attaches a file to a Test entity.",
                     "parameters": [{"$ref": "#/components/parameters/ids"}, {"$ref": "#/components/parameters/filename"}],
                     "responses": {"204": {"description": "File attached"}}
                 }

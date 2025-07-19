@@ -44,8 +44,8 @@ def _generate_service_docstring(service_name: str, operation_id: str, details: D
 
     if 'parameters' in details:
         for param in details['parameters']:
-            if param.get('in') == 'path' and 'id' in param.get('name', '').lower():
-                args_section.append("    entity_id (Union[str, list]): The primary key of the entity.")
+            if "id" == param['$ref'].split("/")[-1]:
+                args_section.append("    entity_id (str): The primary key of the entity.")
 
     if "PutFile" in operation_id:
         args_section.append("    entity_id (str): The primary key of the entity.")
@@ -84,6 +84,35 @@ def _generate_service_docstring(service_name: str, operation_id: str, details: D
 
 def _generate_model_docstring(name: str, definition: Dict[str, Any]) -> str:
     """Generates a docstring for a model in a .pyi stub file."""
+
+    def get_display_type(details: Dict[str, Any]) -> str:
+        """Gets a clean, readable type name for the docstring."""
+        schema_type = details.get("type")
+        schema_format = details.get("format")
+
+        if schema_type == "string":
+            return "datetime" if schema_format == "date-time" else "str"
+        if schema_type == "integer": return "int"
+        if schema_type == "number": return "float"
+        if schema_type == "boolean": return "bool"
+        if schema_type == "object": return "Any"
+
+        if "$ref" in details:
+            ref_name = details["$ref"].split("/")[-1]
+            if "Value" in ref_name:
+                if "String" in ref_name or "Guid" in ref_name: return "str"
+                if "Decimal" in ref_name or "Double" in ref_name: return "float"
+                if "Int" in ref_name or "Short" in ref_name or "Long" in ref_name or "Byte" in ref_name: return "int"
+                if "Boolean" in ref_name: return "bool"
+                if "DateTime" in ref_name: return "datetime"
+            return ref_name
+
+        if schema_type == "array":
+            item_display = get_display_type(details.get("items", {}))
+            return f"List[{item_display}]"
+
+        return "Any"
+
     description = definition.get("description", f"Represents the {name} entity.")
     docstring_lines = [f"{description}\n"]
     docstring_lines.append("Attributes:")
@@ -104,8 +133,7 @@ def _generate_model_docstring(name: str, definition: Dict[str, Any]) -> str:
             if prop_name in ["note", "rowNumber", "error", "_links"]:
                 continue
 
-            type_hint = _map_schema_type_to_python_type(prop_details, prop_name in required_fields)
-            type_display = type_hint.replace('Optional[', '').replace(']', '').replace("'", "")
+            type_display = get_display_type(prop_details)
             required_marker = " (required)" if prop_name in required_fields else ""
             docstring_lines.append(f"    {prop_name} ({type_display}){required_marker}")
 
@@ -242,11 +270,11 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
                 elif "PutFile" in op_id:
                     method_signature = f"    def {method_name}(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None) -> None:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "GetById" in op_id or "GetByKeys" in op_id:
-                    method_signature = f"    def {method_name}(self, entity_id: Union[str, List[str]], options: QueryOptions | None = None, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
+                    method_signature = f"    def {method_name}(self, entity_id: str, options: QueryOptions | None = None, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "GetList" in op_id:
                     method_signature = f"    def {method_name}(self, options: QueryOptions | None = None, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "DeleteById" in op_id or "DeleteByKeys" in op_id:
-                    method_signature = f"    def {method_name}(self, entity_id: Union[str, List[str]], api_version: str | None = None) -> None:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
+                    method_signature = f"    def {method_name}(self, entity_id: str, api_version: str | None = None) -> None:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
                 elif "GetAdHocSchema" in op_id:
                     method_signature = f"    def {method_name}(self, api_version: str | None = None) -> Any:\n        \"\"\"\n{docstring}\n        \"\"\"\n        ..."
 

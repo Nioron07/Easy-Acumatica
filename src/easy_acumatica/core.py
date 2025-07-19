@@ -101,7 +101,7 @@ class BaseService:
 
     def _get(
         self,
-        entity_id: str | list[str] | None = None,
+        entity_id: str | None = None,
         options: QueryOptions | None = None,
         api_version: Optional[str] = None
     ) -> Any:

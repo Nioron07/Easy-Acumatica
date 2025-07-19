@@ -47,8 +47,8 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
     # Handle path parameters like ID
     if 'parameters' in details:
         for param in details['parameters']:
-            if param.get('in') == 'path' and 'id' in param.get('name', '').lower():
-                args_section.append("    entity_id (Union[str, list]): The primary key of the entity.")
+            if "id" == param['$ref'].split("/")[-1]:
+                args_section.append("    entity_id (str): The primary key of the entity.")
 
     if "PutFile" in operation_id:
         args_section.append("    entity_id (str): The primary key of the entity.")

@@ -1,3 +1,5 @@
+# tests/mock_server.py
+
 from flask import Flask, jsonify, request, Response
 from .mock_swagger import get_swagger_json
 
@@ -66,12 +68,15 @@ def get_by_id(entity_id: str):
     """
     if entity_id != "123":
         return jsonify({"error": "Not Found"}), 404
-        
+
     return jsonify({
         "id": "123",
         "Name": {"value": "Specific Test Item"},
         "Value": {"value": "Some Value"},
         "IsActive": {"value": True},
+        "_links": {
+            "files:put": f"/entity/Default/24.200.001/Test/{entity_id}/files/{{filename}}"
+        },
         "files": [  # This array was missing
             {
                 "id": "mock-file-guid",
@@ -88,7 +93,7 @@ def get_by_id_old_api_version(entity_id: str):
     """
     if entity_id != "223":
         return jsonify({"error": "Not Found"}), 404
-        
+
     return jsonify({
         "id": "223",
         "Name": {"value": "Old Specific Test Item"},
@@ -128,7 +133,7 @@ def invoke_action():
     assert 'parameters' in action_data
     assert action_data['entity']['Name']['value'] == "ActionEntity"
     assert action_data['parameters']['Param1']['value'] == "ActionParameter"
-    
+
     return '', 204 # Actions often return No Content
 
 @app.route(f'{BASE_ENTITY_PATH}/$adHocSchema', methods=['GET'])
@@ -155,9 +160,20 @@ def get_file(file_id: str):
     """Simulates downloading a file."""
     if file_id != "mock-file-guid":
         return "File not found", 404
-    
+
     return Response(
         b"This is the content of the downloaded file.",
         mimetype="text/plain",
         headers={"Content-Disposition": "attachment; filename=downloaded.txt"}
     )
+
+# --- NEW ENDPOINT FOR GENERIC INQUIRIES ---
+@app.route('/t/<tenant>/api/odata/gi/<inquiry_name>', methods=['GET'])
+def get_inquiry(tenant: str, inquiry_name: str):
+    """Simulates a generic inquiry request."""
+    return jsonify({
+        "value": [
+            {"Account": {"value": "Test Account 1"}},
+            {"Account": {"value": "Test Account 2"}},
+        ]
+    }), 200
