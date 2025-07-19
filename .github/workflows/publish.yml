@@ -28,7 +28,7 @@ jobs:
           # install your package in editable mode so tests import it
           pip install -e .
           # install test requirements
-          pip install pytest requests-mock
+          pip install pytest requests-mock flask
 
       - name: Run test suite
         run: |
