@@ -68,7 +68,8 @@ class Filter:
             return value.expr
         if isinstance(value, str):
             # Escape single quotes for OData compliance
-            return "'{}'".format(value.replace("'", "''"))
+            escaped_value = value.replace("'", "''")
+            return f"'{escaped_value}'"
         if isinstance(value, bool):
             return "true" if value else "false"
         if value is None:
