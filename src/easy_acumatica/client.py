@@ -147,7 +147,7 @@ class AcumaticaClient:
 
     def _fetch_schema(self, endpoint_name: str, version: str) -> Dict[str, Any]:
         """Fetches the OpenAPI schema for a given endpoint."""
-        schema_url = f"{self.base_url}/entity/{endpoint_name}/{version}/swagger.json?company=${self.tenant}"
+        schema_url = f"{self.base_url}/entity/{endpoint_name}/{version}/swagger.json?company={self.tenant}"
         return self._request("get", schema_url).json()
 
     def _build_dynamic_models(self, schema: Dict[str, Any]):
