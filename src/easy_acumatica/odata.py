@@ -22,7 +22,8 @@ Example:
 (((Price sub 5) gt 10) and startswith(tolower(Name),'a'))
 """
 from __future__ import annotations
-from typing import Optional, Any, List, Union, Dict
+
+from typing import Any, Dict, List, Optional, Union
 
 __all__ = ["F", "Filter", "QueryOptions"]
 
@@ -41,7 +42,7 @@ class Filter:
         """Initializes the Filter with a string fragment."""
         self.expr = expr
 
-    def __getattr__(self, name: str) -> "Filter":
+    def __getattr__(self, name: str) -> Filter:
         """
         Handles nested attribute access for linked entities.
 
@@ -51,7 +52,7 @@ class Filter:
         # Append the new attribute with a '/' for OData path navigation
         new_expr = f"{self.expr}/{name}"
         return Filter(new_expr)
-    
+
     # --- Private Helpers ---
     @staticmethod
     def _to_literal(value: Any) -> str:
@@ -270,7 +271,7 @@ class CustomField:
         self.is_attribute = is_attribute
 
     @classmethod
-    def field(cls, view_name: str, field_name: str, entity_name: Optional[str] = None) -> "CustomField":
+    def field(cls, view_name: str, field_name: str, entity_name: Optional[str] = None) -> CustomField:
         """
         Creates a custom field for a standard or user-defined field.
 
@@ -283,7 +284,7 @@ class CustomField:
         return cls(view_name, field_name, entity_name, is_attribute=False)
 
     @classmethod
-    def attribute(cls, view_name: str, attribute_id: str) -> "CustomField":
+    def attribute(cls, view_name: str, attribute_id: str) -> CustomField:
         """
         Creates a custom field for a user-defined attribute.
 
@@ -297,14 +298,14 @@ class CustomField:
         """Returns the correctly formatted string for the OData query."""
         if self.is_attribute:
             return f"{self.view_name}.Attribute{self.field_name_or_id}"
-        
+
         field_part = f"{self.view_name}.{self.field_name_or_id}"
-        
+
         if self.entity_name:
             return f"{self.entity_name}/{field_part}"
         else:
             return f"{field_part}"
-    
+
     def __repr__(self) -> str:
         """Provides a developer-friendly representation of the CustomField object."""
         return f"CustomField('{self}')"
@@ -364,7 +365,7 @@ class QueryOptions:
             params["$skip"] = str(self.skip)
 
         # --- Combined logic for $custom and $expand ---
-        
+
         # Use a set for expand_values to automatically handle duplicates
         expand_values = set(self.expand) if self.expand else set()
         custom_strings = []
@@ -375,7 +376,7 @@ class QueryOptions:
                 # If it's a CustomField on a detail entity, ensure the entity is expanded
                 if isinstance(item, CustomField) and item.entity_name:
                     expand_values.add(item.entity_name)
-        
+
         # Add the parameters to the dictionary if they have content
         if custom_strings:
             params["$custom"] = ",".join(custom_strings)

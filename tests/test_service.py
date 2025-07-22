@@ -1,8 +1,10 @@
 # tests/test_service.py
 
 import pytest
+
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.inquiries import GenericInquiries
+
 
 @pytest.fixture(scope="module")
 def client(live_server_url):

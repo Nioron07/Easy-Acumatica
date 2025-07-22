@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from easy_acumatica import generate_stubs
-from tests.mock_swagger import get_swagger_json
 
 # --- Final, Correct "Known-Good" Output ---
 EXPECTED_MODELS_PYI = """

@@ -1,4 +1,3 @@
-import pytest
 from easy_acumatica import AcumaticaClient
 
 # Constants from the mock server for verification
@@ -22,7 +21,7 @@ def test_auto_detects_latest_endpoint_version(live_server_url):
     # 2. Assert
     # Verify that the client stored the correct (latest) version
     assert client.endpoints["Default"]["version"] == LATEST_DEFAULT_VERSION
-    
+
     # Verify that subsequent API calls use the latest version in the URL
     # We can check this by making a simple API call and inspecting its URL
     try:
@@ -32,7 +31,7 @@ def test_auto_detects_latest_endpoint_version(live_server_url):
         # If an error occurs, check if the URL in the error message contains the correct version
         assert LATEST_DEFAULT_VERSION in str(e), \
             f"The client should have used version {LATEST_DEFAULT_VERSION} in its API call."
-            
+
     print(f"\n✅ Client successfully auto-detected latest version: {LATEST_DEFAULT_VERSION}")
 
 
@@ -54,14 +53,14 @@ def test_uses_specified_endpoint_version(live_server_url):
     # 2. Assert
     # The client's internal endpoint dictionary should reflect all available versions
     assert client.endpoints["Default"]["version"] == LATEST_DEFAULT_VERSION
-    
+
     # We need to add a swagger endpoint for the OLD version in the mock server
     # to make this test pass. For now, we can check the constructed URL.
     # Let's try to make a call and check the URL in the potential error.
     try:
         # This will fail because our mock swagger endpoint for the old version doesn't exist yet,
         # but the failure will prove it TRIED to use the correct URL.
-        client.tests.get_by_id("123") 
+        client.tests.get_by_id("123")
     except Exception as e:
         assert OLD_DEFAULT_VERSION in str(e), \
              f"The client should have used the specified version {OLD_DEFAULT_VERSION}."

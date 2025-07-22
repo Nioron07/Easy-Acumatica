@@ -1,11 +1,12 @@
 # src/easy_acumatica/core.py
 
 from __future__ import annotations
+
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .helpers import _raise_with_detail
-from .odata import QueryOptions, F, Filter
+from .odata import QueryOptions
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
@@ -40,7 +41,7 @@ class BaseDataClassModel:
                 payload[f.name] = value
             else:
                 payload[f.name] = {"value": value}
-        
+
         return payload
 
     def build(self) -> Dict[str, Any]:
@@ -71,14 +72,14 @@ class BaseService:
         """
         url = f"{self._get_url(api_version)}/$adHocSchema"
         return self._request("get", url, verify=self._client.verify_ssl)
-    
+
     def _request(self, method: str, url: str, **kwargs) -> Any:
         """
         Makes an API request, handling the login/logout lifecycle if needed.
         """
         if not self._client.persistent_login:
             self._client.login()
-        
+
         # Add a default timeout to all requests to prevent freezing
         kwargs.setdefault('timeout', 60)
 
@@ -90,7 +91,7 @@ class BaseService:
 
         if resp.status_code == 204:
             return None
-            
+
         # Safely handle responses that may not have a JSON body
         if resp.text:
             try:
@@ -107,13 +108,13 @@ class BaseService:
     ) -> Any:
         """Performs a GET request."""
         url = self._get_url(api_version)
-        
+
         if entity_id:
             keys = ",".join(map(str, entity_id)) if isinstance(entity_id, list) else entity_id
             url = f"{url}/{keys}"
-            
+
         params = options.to_params() if options else None
-        
+
         return self._request("get", url, params=params)
 
     def _put(
@@ -126,12 +127,12 @@ class BaseService:
         url = self._get_url(api_version)
         params = options.to_params() if options else None
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        
+
         if isinstance(data, BaseDataClassModel):
             json_data = data.to_acumatica_payload()
         else:
             json_data = data
-            
+
         return self._request("put", url, params=params, json=json_data, headers=headers, verify=self._client.verify_ssl)
 
     def _post_action(
@@ -143,14 +144,14 @@ class BaseService:
     ) -> Any:
         """Performs a POST request for a specific action."""
         url = f"{self._get_url(api_version)}/{action_name}"
-        
+
         body = {"entity": entity_payload}
         if parameters:
             body["parameters"] = {key: {"value": value} for key, value in parameters.items()}
-            
+
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         return self._request("post", url, json=body, headers=headers, verify=self._client.verify_ssl)
-    
+
     def _delete(self, entity_id: str, api_version: Optional[str] = None) -> None:
         """
         Performs a DELETE request for a specific entity ID.
@@ -169,7 +170,7 @@ class BaseService:
         """Performs a PUT request to attach a file."""
         # First, get the record to find the file attachment URL
         record = self._get(entity_id=entity_id, api_version=api_version)
-        
+
         # Extract the file upload URL from the _links section
         try:
             upload_url_template = record['_links']['files:put']
@@ -182,7 +183,7 @@ class BaseService:
         headers = {"Accept": "application/json", "Content-Type": "application/octet-stream"}
         if comment:
             headers["PX-CbFileComment"] = comment
-        
+
         self._request("put", upload_url, headers=headers, data=data, verify=self._client.verify_ssl)
 
     def _get_files(

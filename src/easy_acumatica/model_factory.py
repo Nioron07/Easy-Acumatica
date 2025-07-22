@@ -1,12 +1,14 @@
 # src/easy_acumatica/model_factory.py
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Type, Tuple, ForwardRef, get_type_hints
-from dataclasses import make_dataclass, field, Field
+
 import datetime
 import textwrap
+from dataclasses import Field, field, make_dataclass
+from typing import Any, Dict, ForwardRef, List, Optional, Tuple, Type, get_type_hints
 
 from .core import BaseDataClassModel
+
 
 def _generate_model_docstring(name: str, definition: Dict[str, Any]) -> str:
     """Generates a docstring for a dataclass model."""

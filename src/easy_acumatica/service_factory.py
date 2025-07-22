@@ -1,11 +1,13 @@
 # src/easy_acumatica/service_factory.py
 
 from __future__ import annotations
-from typing import Any, Dict, Union, TYPE_CHECKING
-from functools import update_wrapper
-import textwrap
+
 import re
-from .core import BaseService, BaseDataClassModel
+import textwrap
+from functools import update_wrapper
+from typing import TYPE_CHECKING, Any, Dict, Union
+
+from .core import BaseDataClassModel, BaseService
 from .odata import QueryOptions
 
 if TYPE_CHECKING:
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
 def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False) -> str:
     """Generates a detailed docstring from OpenAPI schema details."""
-    
+
     if is_get_files:
         description = f"Retrieves files attached to a {service_name} entity."
         args_section = [
@@ -47,7 +49,7 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
     # Handle path parameters like ID
     if 'parameters' in details:
         for param in details['parameters']:
-            if "id" == param['$ref'].split("/")[-1]:
+            if param['$ref'].split("/")[-1] == "id":
                 args_section.append("    entity_id (str): The primary key of the entity.")
 
     if "PutFile" in operation_id:
@@ -93,7 +95,7 @@ class ServiceFactory:
     """
     Dynamically builds service classes and their methods from an Acumatica OpenAPI schema.
     """
-    def __init__(self, client: "AcumaticaClient", schema: Dict[str, Any]):
+    def __init__(self, client: AcumaticaClient, schema: Dict[str, Any]):
         self._client = client
         self._schema = schema
 
@@ -133,7 +135,7 @@ class ServiceFactory:
         get_files.__doc__ = docstring
         final_method = update_wrapper(get_files, get_files)
         final_method.__name__ = "get_files"
-        setattr(service, "get_files", final_method.__get__(service, BaseService))
+        service.get_files = final_method.__get__(service, BaseService)
 
     def _add_method_to_service(self, service: BaseService, path: str, http_method: str, details: Dict[str, Any]):
         """
@@ -186,7 +188,7 @@ class ServiceFactory:
                 )
             }
             print(entity_payload)
-                
+
             return self._post_action(action_name, entity_payload, parameters=params_payload, api_version=api_version)
 
         def get_schema(self, api_version: str | None = None):

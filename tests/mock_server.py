@@ -1,6 +1,7 @@
 # tests/mock_server.py
 
-from flask import Flask, jsonify, request, Response
+from flask import Flask, Response, jsonify, request
+
 from .mock_swagger import get_swagger_json
 
 app = Flask(__name__)

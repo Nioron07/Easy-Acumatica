@@ -1,15 +1,17 @@
 import argparse
+import re
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List
-import re
+from typing import Any, Dict
+
 import requests
 
 project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root / 'src'))
 
 from easy_acumatica.helpers import _raise_with_detail
+
 
 def _generate_service_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False) -> str:
     """Generates a detailed docstring from OpenAPI schema details."""
@@ -44,7 +46,7 @@ def _generate_service_docstring(service_name: str, operation_id: str, details: D
 
     if 'parameters' in details:
         for param in details['parameters']:
-            if "id" == param['$ref'].split("/")[-1]:
+            if param['$ref'].split("/")[-1] == "id":
                 args_section.append("    entity_id (str): The primary key of the entity.")
 
     if "PutFile" in operation_id:
@@ -193,7 +195,7 @@ def generate_model_stubs(schema: Dict[str, Any]) -> str:
         if name in primitive_wrappers:
             continue
 
-        pyi_content.append(f"\n@dataclass")
+        pyi_content.append("\n@dataclass")
         class_lines = [f"class {name}(BaseDataClassModel):"]
         docstring = _generate_model_docstring(name, definition)
         class_lines.append(docstring)
@@ -257,7 +259,7 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
 
                 docstring_content = _generate_service_docstring(tag, op_id, details)
                 docstring = textwrap.indent(docstring_content, '        ')
-                
+
                 method_signature = ""
                 if "InvokeAction" in op_id:
                     ref = details.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
@@ -332,11 +334,11 @@ def main():
 
         model_pyi = generate_model_stubs(schema)
         Path("src/easy_acumatica/models.pyi").write_text(model_pyi, encoding='utf-8')
-        print(f"✅ Success! Model stubs written to src/easy_acumatica/models.pyi")
+        print("✅ Success! Model stubs written to src/easy_acumatica/models.pyi")
 
         client_pyi = generate_client_stubs(schema)
         Path("src/easy_acumatica/client.pyi").write_text(client_pyi, encoding='utf-8')
-        print(f"✅ Success! Client stubs written to src/easy_acumatica/client.pyi")
+        print("✅ Success! Client stubs written to src/easy_acumatica/client.pyi")
 
         logout_url = f"{args.url.rstrip('/')}/entity/auth/logout"
         session.post(logout_url)
