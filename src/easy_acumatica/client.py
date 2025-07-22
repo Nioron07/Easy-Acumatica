@@ -346,6 +346,7 @@ class AcumaticaClient:
             return schema
         except Exception as e:
             raise AcumaticaError(f"Failed to fetch schema for {endpoint_name} v{version}: {e}")
+        
 
     def _build_dynamic_models(self, schema: Dict[str, Any]) -> None:
         """Populates the 'models' module with dynamically generated dataclasses."""

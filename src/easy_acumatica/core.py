@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+import requests
 
 from .helpers import _raise_with_detail
 from .odata import QueryOptions
@@ -196,3 +197,22 @@ class BaseService:
 
         record = self._get(entity_id=entity_id, options=options, api_version=api_version)
         return record.get("files", [])
+    
+    def _get_inquiry(self, inquiry_name: str, options: QueryOptions | None = None) -> Any:
+        """
+        A generic method in BaseService to fetch data for any given inquiry.
+        """
+        if not self._client.persistent_login:
+            self._client.login()
+
+        url = f"{self._client.base_url}/t/{self._client.tenant}/api/odata/gi/{inquiry_name}"
+        params = options.to_params() if options else None
+        
+        response = requests.get(url=url, auth=(self._client.username, self._client._password), params=params)
+        
+        response.raise_for_status() # Or your custom error handling
+
+        if not self._client.persistent_login:
+            self._client.logout()
+
+        return response.json()

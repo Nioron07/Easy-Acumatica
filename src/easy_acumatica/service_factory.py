@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
+import os
+import requests
 import textwrap
 from functools import update_wrapper
 from typing import TYPE_CHECKING, Any, Dict, Union
@@ -90,6 +93,53 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
 
     return textwrap.indent(full_docstring, '    ')
 
+def generate_inquiry_docstring(xml_file_path: str, container_name: str, inquiry_name: str) -> str:
+    """
+    Parses an OData XML file to generate a docstring for a specific inquiry.
+
+    Args:
+        xml_file_path (str): The path to the local XML metadata file.
+        container_name (str): The name of the EntityContainer to search within (e.g., "Default").
+        inquiry_name (str): The name of the EntitySet to generate the docstring for (e.g., "PE All Items").
+
+    Returns:
+        A formatted docstring string.
+    """
+    try:
+        namespaces = {'edm': 'http://docs.oasis-open.org/odata/ns/edm'}
+        tree = ET.parse(xml_file_path)
+        root = tree.getroot()
+
+        # 1. Find the EntityType directly using the provided name
+        entity_type_path = f'.//edm:EntityType[@Name="{container_name}"]'
+        entity_type = root.find(entity_type_path, namespaces)
+
+        if entity_type is None:
+            return f"Error: EntityType '{container_name}' not found in the XML."
+
+        # 2. Extract all properties (the fields) from that EntityType
+        properties = [prop.attrib for prop in entity_type.findall('edm:Property', namespaces)]
+
+        # 3. Format the fields and the final docstring
+        if properties:
+            fields_str = "\n".join([f"    - {prop.get('Name')} ({prop.get('Type').split('.', 1)[-1]})" for prop in properties])
+        else:
+            fields_str = "    (No properties found for this EntityType)"
+
+        docstring = f"""Generic Inquiry for the '{inquiry_name}' endpoint
+
+    Args:
+        options (QueryOptions, optional): OData query options like $filter, $top, etc.
+
+    Returns:
+        A dictionary containing the API response, typically a list of records with the following fields:
+{fields_str}
+    """
+        return docstring
+
+    except (FileNotFoundError, ET.ParseError) as e:
+        return f"Error processing XML file: {e}"
+
 
 class ServiceFactory:
     """
@@ -101,11 +151,14 @@ class ServiceFactory:
 
     def build_services(self) -> Dict[str, BaseService]:
         """
-        Parses the entire schema and generates all corresponding services and methods.
+        Parses all schemas (OpenAPI and OData XML) and generates all
+        corresponding services in a single dictionary.
         """
         services: Dict[str, BaseService] = {}
-        paths = self._schema.get("paths", {})
 
+        # --- Part 1: Build services from OpenAPI Schema ---
+        print("\n--- Building services from OpenAPI Schema ---")
+        paths = self._schema.get("paths", {})
         tags_to_ops: Dict[str, list] = {}
         for path, path_info in paths.items():
             for http_method, details in path_info.items():
@@ -116,14 +169,75 @@ class ServiceFactory:
 
         for tag, operations in tags_to_ops.items():
             service_class = type(f"{tag}Service", (BaseService,), {
-                "__init__": lambda self, client, entity_name=tag: BaseService.__init__(self, client, entity_name)
+                "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
             })
-            services[tag] = service_class(self._client)
-
+            service_instance = service_class(self._client)
             for path, http_method, details in operations:
-                self._add_method_to_service(services[tag], path, http_method, details)
+                self._add_method_to_service(service_instance, path, http_method, details)
+            services[tag] = service_instance
+        print(f"Completed building {len(services)} services from OpenAPI schema.")
 
+
+        tag = "Inquiry"
+        service_class = type(f"{tag}Service", (BaseService,), {
+            "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
+        })
+        inquiries_service = service_class(self._client)
+        services[tag] = inquiries_service
+
+
+        # Now populate it using the refactored loop
+        try:
+            inquiries_service = services["Inquiry"]
+            xml_file_path = self._fetch_gi_xml()
+            self._xml_file_path = xml_file_path
+            namespaces = {'edmx': 'http://docs.oasis-open.org/odata/ns/edmx', 'edm': 'http://docs.oasis-open.org/odata/ns/edm'}
+            tree = ET.parse(xml_file_path)
+            container = tree.find('.//edm:EntityContainer[@Name="Default"]', namespaces)
+
+            if container is not None:
+                for entity_set in container.findall('edm:EntitySet', namespaces):
+                    original_name = entity_set.get('Name')
+                    entity_type = entity_set.get('EntityType')
+                    if not original_name: continue
+                    method_name = re.sub(r"[-\s]+", "_", original_name)
+                    self._add_inquiry_method(inquiries_service, original_name, method_name, entity_type)
+
+        except Exception as e:
+            print(f"Could not build methods for Inquiries service: {e}")
+
+        print("\n--- Build Complete ---")
         return services
+    
+    def _fetch_gi_xml(self):
+        """
+        Fetches the Generic Inquiries XML document and saves it to a .metadata folder inside the package directory.
+        """
+        metadata_url = f"{self._client.base_url}/t/{self._client.tenant}/api/odata/gi/$metadata"
+        print(f"Fetching schema from {metadata_url}...")
+
+        try:
+            response = requests.get(
+                url=metadata_url,
+                auth=(self._client.username, self._client._password)
+            )
+            response.raise_for_status()
+
+            # Determine package root directory based on this file's location
+            package_dir = os.path.dirname(os.path.abspath(__file__))
+            metadata_dir = os.path.join(package_dir, ".metadata")
+            os.makedirs(metadata_dir, exist_ok=True)
+
+            output_path = os.path.join(metadata_dir, "odata_schema.xml")
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+
+            print(f"Schema saved to {output_path}")
+            return output_path
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching metadata: {e}")
+            raise
 
     def _add_get_files_method(self, service: BaseService):
         """Adds the get_files method to a service."""
@@ -219,3 +333,28 @@ class ServiceFactory:
         final_method.__name__ = method_name
 
         setattr(service, method_name, final_method.__get__(service, BaseService))
+
+    def _add_inquiry_method(self, service: BaseService, inquiry_name: str, method_name: str, entity_type: str):
+        """
+        Creates a simple wrapper method that calls the BaseService._get_inquiry method.
+        """
+    
+        # This factory function creates the method we will attach
+        def create_inquiry_method(name_of_inquiry: str):
+            
+            # This is the simplified function that will be attached
+            def api_method(self, options: QueryOptions | None = None) -> Any:
+                """Fetches data for the Generic Inquiry: {name_of_inquiry}"""
+                # It just calls the method on its base class!
+                return self._get_inquiry(name_of_inquiry, options=options)
+            
+            return api_method
+
+        # Create the method and attach it to the service instance
+        docstring = generate_inquiry_docstring(self._xml_file_path, entity_type.split('.', 1)[-1], inquiry_name=inquiry_name)
+        inquiry_method = create_inquiry_method(inquiry_name)
+        inquiry_method.__doc__ = docstring
+        inquiry_method.__name__ = method_name
+        
+        setattr(service, method_name, inquiry_method.__get__(service, BaseService))
+
