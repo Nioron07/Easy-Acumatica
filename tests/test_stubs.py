@@ -194,8 +194,7 @@ def test_stub_generation_against_static_output(live_server_url, monkeypatch):
         "--url", live_server_url,
         "--username", "test",
         "--password", "test",
-        "--tenant", "test",
-        "--endpoint-version", "24.200.001"
+        "--tenant", "test"
     ]
     monkeypatch.setattr(sys, "argv", dummy_args)
 
