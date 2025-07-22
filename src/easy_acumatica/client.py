@@ -48,12 +48,7 @@ from weakref import WeakSet
 
 import requests
 from requests.adapters import HTTPAdapter
-try:
-    # Try the newer import path first
-    from urllib3.util.retry import Retry
-except ImportError:
-    # Fall back to the older path
-    from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 
 from . import models
 from .config import AcumaticaConfig

@@ -78,7 +78,7 @@ def retry_on_error(
                         raise
                     
                     logger.warning(
-                        f"Attempt {attempt}/{max_attempts} failed for {func.__name__}: {e}. "
+                        f"Attempt {attempt}/{max_attempts} failed for {getattr(func, '__name__', repr(func))}: {e}. "
                         f"Retrying in {current_delay:.1f}s..."
                     )
                     time.sleep(current_delay)
