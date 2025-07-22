@@ -4,8 +4,9 @@ import sys
 import textwrap
 from pathlib import Path
 from typing import Any, Dict
-
+import getpass
 import requests
+from easy_acumatica.client import AcumaticaClient
 
 project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root / 'src'))
@@ -306,42 +307,40 @@ def generate_client_stubs(schema: Dict[str, Any]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Generate .pyi stub files for easy-acumatica.")
-    parser.add_argument("--url", required=True)
-    parser.add_argument("--username", required=True)
-    parser.add_argument("--password", required=True)
-    parser.add_argument("--tenant", required=True)
-    parser.add_argument("--endpoint-version", required=True)
-    parser.add_argument("--endpoint-name", default="Default")
-    parser.add_argument("--branch", required=False)
+    parser.add_argument("--url", help="Base URL of the Acumatica instance.")
+    parser.add_argument("--username", help="Username for authentication.")
+    parser.add_argument("--password", help="Password for authentication.")
+    parser.add_argument("--tenant", help="The tenant to connect to.")
+    parser.add_argument("--endpoint-version", default="24.200.001", help="The API endpoint version to use.")
+    parser.add_argument("--endpoint-name", default="Default", help="The API endpoint name.")
     args = parser.parse_args()
 
-    with requests.Session() as session:
-        login_payload = {
-            "name": args.username,
-            "password": args.password,
-            "tenant": args.tenant,
-        }
-        login_url = f"{args.url.rstrip('/')}/entity/auth/login"
-        login_resp = session.post(login_url, json=login_payload)
-        _raise_with_detail(login_resp)
-        print("Login successful.")
+    if not args.url:
+        args.url = input("Enter Acumatica URL: ")
+    if not args.tenant:
+        args.tenant = input("Enter Tenant: ")
+    if not args.username:
+        args.username = input("Enter Username: ")
+    if not args.password:
+        args.password = getpass.getpass("Enter Password: ")
 
-        schema_url = f"{args.url.rstrip('/')}/entity/{args.endpoint_name}/{args.endpoint_version}/swagger.json"
-        schema_resp = session.get(schema_url)
-        _raise_with_detail(schema_resp)
-        schema = schema_resp.json()
-        print("Schema fetched successfully.")
+    client = AcumaticaClient(
+        base_url=args.url,
+        username=args.username,
+        password=args.password,
+        tenant=args.tenant,
+        endpoint_name = args.endpoint_name,
+        endpoint_version = args.endpoint_version,
 
-        model_pyi = generate_model_stubs(schema)
-        Path("src/easy_acumatica/models.pyi").write_text(model_pyi, encoding='utf-8')
-        print("✅ Success! Model stubs written to src/easy_acumatica/models.pyi")
+    )
+    schema = client._fetch_schema(args.endpoint_name, args.endpoint_version)
+    model_pyi = generate_model_stubs(schema)
+    Path("src/easy_acumatica/models.pyi").write_text(model_pyi, encoding='utf-8')
+    print("✅ Success! Model stubs written to src/easy_acumatica/models.pyi")
 
-        client_pyi = generate_client_stubs(schema)
-        Path("src/easy_acumatica/client.pyi").write_text(client_pyi, encoding='utf-8')
-        print("✅ Success! Client stubs written to src/easy_acumatica/client.pyi")
-
-        logout_url = f"{args.url.rstrip('/')}/entity/auth/logout"
-        session.post(logout_url)
+    client_pyi = generate_client_stubs(schema)
+    Path("src/easy_acumatica/client.pyi").write_text(client_pyi, encoding='utf-8')
+    print("✅ Success! Client stubs written to src/easy_acumatica/client.pyi")
 
 if __name__ == "__main__":
     main()

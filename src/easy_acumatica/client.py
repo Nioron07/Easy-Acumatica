@@ -313,7 +313,7 @@ class AcumaticaClient:
                 logger.debug(f"Found endpoint: {name} v{endpoint.get('version')}")
 
     @lru_cache(maxsize=32)
-    def _fetch_schema(self, endpoint_name: str, version: str) -> Dict[str, Any]:
+    def _fetch_schema(self, endpoint_name: str = "Default", version: str = None) -> Dict[str, Any]:
         """
         Fetches and caches the OpenAPI schema for a given endpoint.
         
@@ -327,6 +327,8 @@ class AcumaticaClient:
         Raises:
             AcumaticaError: If schema fetch fails
         """
+        if not version:
+            version = self.endpoints[endpoint_name]
         cache_key = f"{endpoint_name}:{version}"
         if cache_key in self._schema_cache:
             logger.debug(f"Using cached schema for {cache_key}")

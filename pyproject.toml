@@ -48,7 +48,7 @@ dev = [
 "Bug Tracker" = "https://github.com/Nioron07/Easy-Acumatica/issues"
 
 [project.scripts]
-easy-acumatica-stubs = "easy_acumatica.generate_stubs:main"
+generate-stubs = "easy_acumatica.generate_stubs:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -82,20 +82,3 @@ precision = 2
 show_missing = true
 skip_covered = false
 fail_under = 80
-
-[tool.black]
-line-length = 120
-target-version = ['py38']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # directories
-  \.eggs
-  | \.git
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-)/
-'''

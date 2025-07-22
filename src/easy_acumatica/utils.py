@@ -350,7 +350,7 @@ class BatchProcessor:
         self.batch_size = batch_size
         self.progress_callback = progress_callback
     
-    def process(self, items: List[Any]) -> List[List[Any]]:
+    def process(self, items: List[Any]) -> List[List[Any]]: # type: ignore
         """
         Process items in batches.
         
