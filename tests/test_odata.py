@@ -174,14 +174,14 @@ class TestArithmeticOperators:
 class TestStringFunctions:
     """Test string functions (v3 and v4)."""
     
-    def test_contains_v3(self):
+    def test_substringof(self):
         """Test contains function (v3 style with substringof)."""
-        filter_expr = F.Description.contains("Widget")
+        filter_expr = F.Description.substringof("Widget")
         assert str(filter_expr) == "substringof('Widget', Description)"
     
-    def test_contains_v4(self):
+    def test_contains(self):
         """Test contains function (v4 style)."""
-        filter_expr = F.Description.contains_v4("Widget")
+        filter_expr = F.Description.contains("Widget")
         assert str(filter_expr) == "contains(Description,'Widget')"
     
     def test_startswith(self):

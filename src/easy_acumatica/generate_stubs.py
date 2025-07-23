@@ -1,6 +1,7 @@
 import argparse
 import getpass
 import inspect
+import easy_acumatica
 import os
 import sys
 from dataclasses import fields, is_dataclass
@@ -189,7 +190,14 @@ def generate_stubs_from_client(client: AcumaticaClient, output_dir: Path) -> Non
     """Generate stub files by introspecting the client object."""
     
     # Create stubs directory at same level as src/easy_acumatica
-    stubs_dir = output_dir / "src" / "easy_acumatica" / "stubs"
+    if output_dir is None or str(output_dir) == ".":
+        # Find the package installation directory
+        package_dir = os.path.dirname(easy_acumatica.__file__)
+        stubs_dir = Path(package_dir) / "stubs"
+    else:
+        # Use specified directory
+        stubs_dir = output_dir / "src" / "easy_acumatica" / "stubs"
+    
     stubs_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate models.pyi

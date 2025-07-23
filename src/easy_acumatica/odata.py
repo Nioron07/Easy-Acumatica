@@ -193,17 +193,16 @@ class Filter:
         return self._binary_op("mod", other, True)
 
     # --- String Functions (OData v3, v4) ---
-    def contains(self, substring: Any) -> Filter:
+    def substringof(self, substring: Any) -> Filter:
         """
-        Creates a contains filter.
-        OData v3: uses substringof(substring, field)
-        OData v4: uses contains(field, substring)
+        Creates a substringof filter.
+        uses substringof(substring, field)
         This method uses the v3 format for backward compatibility.
         Supported in: OData v3 (as substringof)
         """
         return Filter(f"substringof({self._to_literal(substring)}, {self.expr})")
     
-    def contains_v4(self, substring: Any) -> Filter:
+    def contains(self, substring: Any) -> Filter:
         """
         Creates a contains filter using OData v4 syntax.
         Supported in: OData v4

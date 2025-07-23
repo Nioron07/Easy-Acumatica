@@ -259,11 +259,18 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
             generate_stubs.main()
     
     # Verify stubs directory was created in the right location
-    assert any("src/easy_acumatica/stubs" in d or "src\\easy_acumatica\\stubs" in d for d in created_dirs), \
+    # When output_dir is ".", the code uses the package installation directory
+    # When output_dir is something else, it uses output_dir / "src" / "easy_acumatica" / "stubs"
+    expected_paths = [
+        "stubs",  # Package directory stubs (when output_dir is ".")
+        "src/easy_acumatica/stubs",  # Custom output_dir path
+        "src\\easy_acumatica\\stubs"  # Windows variant
+    ]
+    assert any(any(expected_path in d for expected_path in expected_paths) for d in created_dirs), \
         f"stubs directory was not created in the right location. Created dirs: {created_dirs}"
     
     # Verify the four expected files were written (models, services, client, __init__)
-    stub_files = [f for f in written_files if "stubs" in f]
+    stub_files = [f for f in written_files if "stubs" in f and f.endswith(".pyi")]
     assert len(stub_files) == 4, f"Expected 4 stub files, but found {len(stub_files)}: {stub_files}"
     
     # Verify the expected files were written
