@@ -178,7 +178,7 @@ class ServiceFactory:
         print(f"Completed building {len(services)} services from OpenAPI schema.")
 
 
-        tag = "Inquiry"
+        tag = "Inquirie"
         service_class = type(f"{tag}Service", (BaseService,), {
             "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
         })
@@ -188,7 +188,7 @@ class ServiceFactory:
 
         # Now populate it using the refactored loop
         try:
-            inquiries_service = services["Inquiry"]
+            inquiries_service = services["Inquirie"]
             xml_file_path = self._fetch_gi_xml()
             self._xml_file_path = xml_file_path
             namespaces = {'edmx': 'http://docs.oasis-open.org/odata/ns/edmx', 'edm': 'http://docs.oasis-open.org/odata/ns/edm'}

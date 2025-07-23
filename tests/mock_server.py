@@ -3,6 +3,7 @@
 from flask import Flask, Response, jsonify, request
 
 from .mock_swagger import get_swagger_json
+from .mock_xml import get_odata_metadata_xml
 
 app = Flask(__name__)
 LATEST_DEFAULT_VERSION = "24.200.001"
@@ -48,6 +49,20 @@ def get_swagger(version: str):
     # For this test, we'll serve the same one regardless of the version requested.
     print(f"Swagger requested for version: {version}")
     return jsonify(get_swagger_json()), 200
+
+# --- NEW METADATA ENDPOINT FOR GENERIC INQUIRIES ---
+@app.route('/t/<tenant>/api/odata/gi/$metadata', methods=['GET'])
+def get_odata_metadata(tenant: str):
+    """
+    Serves the OData metadata XML for Generic Inquiries.
+    This is used by the service factory to dynamically generate inquiry methods.
+    """
+    print(f"OData metadata requested for tenant: {tenant}")
+    return Response(
+        get_odata_metadata_xml(),
+        mimetype='application/xml',
+        headers={'Content-Type': 'application/xml; charset=utf-8'}
+    )
 
 # --- TestService Endpoints ---
 BASE_ENTITY_PATH = f"/entity/{TEST_ENDPOINT_NAME}/{LATEST_DEFAULT_VERSION}/Test"
@@ -172,9 +187,26 @@ def get_file(file_id: str):
 @app.route('/t/<tenant>/api/odata/gi/<inquiry_name>', methods=['GET'])
 def get_inquiry(tenant: str, inquiry_name: str):
     """Simulates a generic inquiry request."""
-    return jsonify({
-        "value": [
-            {"Account": {"value": "Test Account 1"}},
-            {"Account": {"value": "Test Account 2"}},
-        ]
-    }), 200
+    # Return different data based on the inquiry name for better testing
+    if inquiry_name == "Account Details":
+        return jsonify({
+            "value": [
+                {"AccountID": {"value": "1000"}, "AccountName": {"value": "Cash Account"}, "Balance": {"value": 50000.00}},
+                {"AccountID": {"value": "2000"}, "AccountName": {"value": "Accounts Receivable"}, "Balance": {"value": 25000.00}},
+            ]
+        }), 200
+    elif inquiry_name == "Customer List":
+        return jsonify({
+            "value": [
+                {"CustomerID": {"value": "C001"}, "CustomerName": {"value": "ABC Corp"}, "City": {"value": "New York"}},
+                {"CustomerID": {"value": "C002"}, "CustomerName": {"value": "XYZ Ltd"}, "City": {"value": "Chicago"}},
+            ]
+        }), 200
+    else:
+        # Default response for any other inquiry
+        return jsonify({
+            "value": [
+                {"Account": {"value": "Test Account 1"}},
+                {"Account": {"value": "Test Account 2"}},
+            ]
+        }), 200
