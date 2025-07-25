@@ -1059,6 +1059,266 @@ class TestEdgeCases:
         expected = "((((Price mul 1.1) add (Tax mul 0.9)) div 2) gt 100)"
         assert str(filter_expr) == expected
 
+# Add this to tests/test_odata.py after the existing TestQueryOptions class
 
+class TestQueryOptionsHelperMethods:
+    """Test QueryOptions helper methods: to_dict() and copy()."""
+    
+    def test_to_dict_basic(self):
+        """Test to_dict with basic options."""
+        options = QueryOptions(
+            filter=F.Status == "Active",
+            select=["Id", "Name"],
+            top=10
+        )
+        
+        result = options.to_dict()
+        assert isinstance(result, dict)
+        assert str(result["filter"]) == "(Status eq 'Active')"
+        assert result["select"] == ["Id", "Name"]
+        assert result["top"] == 10
+        assert "skip" not in result  # None values should not be included
+    
+    def test_to_dict_all_options(self):
+        """Test to_dict with all possible options."""
+        cf = CustomField.field("Settings", "CustomField")
+        options = QueryOptions(
+            filter=F.Amount > 100,
+            expand=["Contact", "Address"],
+            select=["Id", "Name", "Amount"],
+            top=50,
+            skip=100,
+            custom=[cf, "SimpleField"],
+            orderby=["Name asc", "Date desc"],
+            count=True,
+            search="test search",
+            format="json",
+            skiptoken="token123",
+            deltatoken="delta456",
+            apply="groupby((Status))"
+        )
+        
+        result = options.to_dict()
+        assert str(result["filter"]) == "(Amount gt 100)"
+        assert result["expand"] == ["Contact", "Address"]
+        assert result["select"] == ["Id", "Name", "Amount"]
+        assert result["top"] == 50
+        assert result["skip"] == 100
+        assert len(result["custom"]) == 2
+        assert result["orderby"] == ["Name asc", "Date desc"]
+        assert result["count"] == True
+        assert result["search"] == "test search"
+        assert result["format"] == "json"
+        assert result["skiptoken"] == "token123"
+        assert result["deltatoken"] == "delta456"
+        assert result["apply"] == "groupby((Status))"
+    
+    def test_to_dict_empty_options(self):
+        """Test to_dict with no options set."""
+        options = QueryOptions()
+        result = options.to_dict()
+        assert result == {}
+    
+    def test_to_dict_preserves_filter_object(self):
+        """Test that to_dict preserves Filter objects (not converting to string)."""
+        filter_obj = F.Status == "Active"
+        options = QueryOptions(filter=filter_obj)
+        
+        result = options.to_dict()
+        assert isinstance(result["filter"], Filter)
+        assert result["filter"] is filter_obj  # Should be the same object
+    
+    def test_copy_basic(self):
+        """Test copy method with basic updates."""
+        original = QueryOptions(
+            filter=F.Status == "Active",
+            select=["Id", "Name"],
+            top=10
+        )
+        
+        # Copy with no changes
+        copy1 = original.copy()
+        assert copy1 is not original  # Different object
+        assert copy1.to_dict() == original.to_dict()
+        
+        # Copy with updates
+        copy2 = original.copy(top=50, skip=20)
+        assert copy2.filter == original.filter  # Filter unchanged
+        assert copy2.select == original.select  # Select unchanged
+        assert copy2.top == 50  # Updated
+        assert copy2.skip == 20  # Added
+        
+        # Original should be unchanged
+        assert original.top == 10
+        assert original.skip is None
+    
+    def test_copy_replace_values(self):
+        """Test copy method replacing existing values."""
+        original = QueryOptions(
+            filter=F.Status == "Active",
+            orderby="Name asc",
+            top=10
+        )
+        
+        new_filter = F.Status == "Inactive"
+        copy = original.copy(
+            filter=new_filter,
+            orderby=["Date desc", "Name asc"],
+            top=20
+        )
+        
+        # Check updated values
+        assert copy.filter == new_filter
+        assert copy.orderby == ["Date desc", "Name asc"]
+        assert copy.top == 20
+        
+        # Original unchanged
+        assert str(original.filter) == "(Status eq 'Active')"
+        assert original.orderby == "Name asc"
+        assert original.top == 10
+    
+    def test_copy_add_new_parameters(self):
+        """Test copy method adding new parameters."""
+        original = QueryOptions(filter=F.Amount > 100)
+        
+        copy = original.copy(
+            select=["Id", "Amount"],
+            expand=["Details"],
+            count=True,
+            search="test"
+        )
+        
+        # Check new values
+        assert copy.filter == original.filter
+        assert copy.select == ["Id", "Amount"]
+        assert copy.expand == ["Details"]
+        assert copy.count == True
+        assert copy.search == "test"
+        
+        # Original should only have filter
+        assert original.select is None
+        assert original.expand is None
+        assert original.count is None
+        assert original.search is None
+    
+    def test_copy_with_custom_fields(self):
+        """Test copy method with custom fields."""
+        cf1 = CustomField.field("Settings", "Field1")
+        cf2 = CustomField.field("Settings", "Field2", "Entity")
+        
+        original = QueryOptions(
+            custom=[cf1],
+            expand=["Contact"]
+        )
+        
+        copy = original.copy(custom=[cf1, cf2])
+        
+        # Copy should have both custom fields
+        assert len(copy.custom) == 2
+        assert copy.custom[0] == cf1
+        assert copy.custom[1] == cf2
+        
+        # Original should still have one
+        assert len(original.custom) == 1
+    
+    def test_copy_preserves_none_values(self):
+        """Test that copy doesn't add None values unnecessarily."""
+        original = QueryOptions(filter=F.Status == "Active")
+        
+        # Copy with explicit None
+        copy = original.copy(skip=None)
+        assert copy.skip is None
+        assert "skip" not in copy.to_dict()
+    
+    def test_copy_complex_scenario(self):
+        """Test copy in a complex real-world scenario."""
+        # Base query template
+        base_query = QueryOptions(
+            select=["Id", "Name", "Status", "Amount"],
+            orderby="Name asc",
+            top=20
+        )
+        
+        # Create variations for different use cases
+        active_query = base_query.copy(
+            filter=F.Status == "Active"
+        )
+        
+        high_value_query = base_query.copy(
+            filter=(F.Status == "Active") & (F.Amount > 10000),
+            orderby=["Amount desc", "Name asc"],
+            expand=["Customer"]
+        )
+        
+        paginated_query = base_query.copy(
+            filter=F.Status == "Active",
+            skip=40,
+            top=20  # Same as base, but explicit
+        )
+        
+        # Verify each variation
+        assert active_query.filter != base_query.filter
+        assert active_query.select == base_query.select
+        
+        assert str(high_value_query.filter) == "((Status eq 'Active') and (Amount gt 10000))"
+        assert high_value_query.orderby != base_query.orderby
+        assert high_value_query.expand == ["Customer"]
+        
+        assert paginated_query.skip == 40
+        assert paginated_query.top == 20
+    
+    def test_copy_chain(self):
+        """Test chaining copy operations."""
+        original = QueryOptions()
+        
+        # Chain multiple copies
+        final = (original
+                .copy(filter=F.Status == "Active")
+                .copy(select=["Id", "Name"])
+                .copy(top=10, skip=0)
+                .copy(expand=["Details"]))
+        
+        # Verify final state
+        assert str(final.filter) == "(Status eq 'Active')"
+        assert final.select == ["Id", "Name"]
+        assert final.top == 10
+        assert final.skip == 0
+        assert final.expand == ["Details"]
+        
+        # Original should be empty
+        assert original.to_dict() == {}
+    
+    def test_to_dict_and_copy_integration(self):
+        """Test using to_dict and copy together."""
+        original = QueryOptions(
+            filter=F.Type == "Customer",
+            select=["Id", "Name"],
+            top=10
+        )
+        
+        # Get dict, modify it, create new QueryOptions
+        options_dict = original.to_dict()
+        options_dict["top"] = 50
+        options_dict["skip"] = 100
+        
+        new_options = QueryOptions(**options_dict)
+        
+        # Should be equivalent to using copy
+        copy_options = original.copy(top=50, skip=100)
+        
+        assert new_options.to_params() == copy_options.to_params()
+    
+    def test_copy_with_string_filter(self):
+        """Test copy with string filter (not Filter object)."""
+        original = QueryOptions(filter="Status eq 'Active'")
+        
+        copy = original.copy(top=10)
+        assert copy.filter == "Status eq 'Active'"
+        assert copy.top == 10
+        
+        # Ensure params work correctly
+        params = copy.to_params()
+        assert params["$filter"] == "Status eq 'Active'"
+        assert params["$top"] == "10"
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

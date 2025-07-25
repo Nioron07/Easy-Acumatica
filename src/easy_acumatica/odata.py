@@ -682,3 +682,67 @@ class QueryOptions:
             params["$expand"] = ",".join(sorted(list(expand_values)))
 
         return params
+    # Add this to the QueryOptions class in src/easy_acumatica/odata.py
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert QueryOptions to a dictionary representation.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with all non-None option values
+        """
+        result = {}
+        
+        if self.filter is not None:
+            result["filter"] = self.filter
+        if self.expand is not None:
+            result["expand"] = self.expand
+        if self.select is not None:
+            result["select"] = self.select
+        if self.top is not None:
+            result["top"] = self.top
+        if self.skip is not None:
+            result["skip"] = self.skip
+        if self.custom is not None:
+            result["custom"] = self.custom
+        if self.orderby is not None:
+            result["orderby"] = self.orderby
+        if self.count is not None:
+            result["count"] = self.count
+        if self.search is not None:
+            result["search"] = self.search
+        if self.format is not None:
+            result["format"] = self.format
+        if self.skiptoken is not None:
+            result["skiptoken"] = self.skiptoken
+        if self.deltatoken is not None:
+            result["deltatoken"] = self.deltatoken
+        if self.apply is not None:
+            result["apply"] = self.apply
+            
+        return result
+    
+    def copy(self, **kwargs) -> "QueryOptions":
+        """
+        Create a copy of this QueryOptions with updated parameters.
+        
+        Args:
+            **kwargs: Parameters to update in the copy. Any parameter
+                     accepted by __init__ can be passed here.
+        
+        Returns:
+            QueryOptions: A new QueryOptions instance with updated parameters
+            
+        Example:
+            >>> options = QueryOptions(filter=F.Status == "Active", top=10)
+            >>> new_options = options.copy(top=50, skip=0)
+            >>> # new_options has filter from original but top=50 and skip=0
+        """
+        # Get current values as dict
+        current_values = self.to_dict()
+        
+        # Update with new values
+        current_values.update(kwargs)
+        
+        # Create new instance
+        return QueryOptions(**current_values)
