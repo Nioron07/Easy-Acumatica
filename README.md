@@ -36,7 +36,3 @@ MIT-licensed (see [LICENSE](LICENSE) for details)
 ```bash
 easy-acumatica-stubs --url "*base url" --username "*username*" --password "*password*" --tenant "*Tenant*" --endpoint-version "*api version*"
 ```
-
-## Easy Acumatica-Chan says "Thanks for Downloading!"
-
-![Logo](assets/EA-Anime.png)
