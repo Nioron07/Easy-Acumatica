@@ -113,7 +113,7 @@ class ModelFactory:
             namespace={'build': BaseDataClassModel.build},
             frozen=False
         )
-
+        model.__module__ = 'easy_acumatica.models'
         model.__doc__ = _generate_model_docstring(name, definition)
         self._models[name] = model
         return model
