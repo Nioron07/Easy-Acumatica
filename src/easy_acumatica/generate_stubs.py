@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+"""
+Generate PEP 561 compliant stub files for easy-acumatica.
+
+This script generates .pyi stub files that work properly with VSCode, mypy, and other type checkers
+by placing them in the correct locations according to PEP 561.
+"""
+
 import argparse
 import getpass
 import inspect
@@ -186,63 +194,34 @@ def generate_service_stub(service_name: str, service_instance: BaseService) -> L
     return lines
 
 
-def generate_stubs_from_client(client: AcumaticaClient, output_dir: Path) -> None:
-    """Generate stub files by introspecting the client object."""
+def create_py_typed_file(package_dir: Path) -> None:
+    """Create a py.typed file to mark the package as PEP 561 compliant."""
+    py_typed_path = package_dir / "py.typed"
+    py_typed_path.write_text("")
+    print(f"✅ Created py.typed marker at {py_typed_path}")
+
+
+def generate_stubs_inline(client: AcumaticaClient, package_dir: Path) -> None:
+    """
+    Generate stub files inline with the package (PEP 561 compliant).
+    This places .pyi files alongside .py files in the package.
+    """
+    print("Generating inline stub files (PEP 561 compliant)...")
     
-    # Create stubs directory at same level as src/easy_acumatica
-    if output_dir is None or str(output_dir) == ".":
-        # Find the package installation directory
-        package_dir = os.path.dirname(easy_acumatica.__file__)
-        stubs_dir = Path(package_dir) / "stubs"
-    else:
-        # Use specified directory
-        stubs_dir = output_dir / "src" / "easy_acumatica" / "stubs"
+    # Create py.typed file to mark package as supporting type checking
+    create_py_typed_file(package_dir)
     
-    stubs_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate models.pyi
-    print("Generating models.pyi...")
-    model_lines = [
+    # Generate client.pyi
+    print("Generating client.pyi...")
+    client_lines = [
         "from __future__ import annotations",
-        "from typing import Any, List, Optional, Union",
-        "from dataclasses import dataclass",
-        "from datetime import datetime",
-        "import easy_acumatica", 
-        "from ..core import BaseDataClassModel",
-        ""
-    ]
-    
-    # Get all model classes from client.models
-    model_classes = []
-    for attr_name in dir(client.models):
-        if not attr_name.startswith('_'):
-            attr = getattr(client.models, attr_name)
-            if isinstance(attr, type) and issubclass(attr, BaseDataClassModel):
-                model_classes.append((attr_name, attr))
-    
-    # Sort models alphabetically
-    model_classes.sort(key=lambda x: x[0])
-    
-    # Generate stub for each model
-    for model_name, model_class in model_classes:
-        model_lines.extend(generate_model_stub(model_class))
-        model_lines.append("")  # Empty line between classes
-    
-    # Write models.pyi
-    (stubs_dir / "models.pyi").write_text("\n".join(model_lines))
-    print(f"✅ Generated {len(model_classes)} model stubs in src/easy_acumatica/stubs/models.pyi")
-    
-    # Generate services.pyi
-    print("Generating services.pyi...")
-    services_lines = [
-        "from __future__ import annotations",
-        "from typing import Any, Union, List, Dict, Optional, TYPE_CHECKING",
-        "from ..core import BaseService, BaseDataClassModel",
-        "from ..odata import QueryOptions",
+        "from typing import Any, Union, List, Dict, Optional",
+        "from . import models",
+        "from .core import BaseService, BaseDataClassModel",
+        "from .odata import QueryOptions",
+        "import requests",
         "",
-        "if TYPE_CHECKING:",
-        "    from .. import models",
-        ""
+        "",
     ]
     
     # Get all service attributes from the client
@@ -256,34 +235,18 @@ def generate_stubs_from_client(client: AcumaticaClient, output_dir: Path) -> Non
             attr = getattr(client, attr_name)
             if isinstance(attr, BaseService):
                 # Convert attribute name to PascalCase service name
-                # e.g., 'account_details_for_period_inquirys' -> 'AccountDetailsForPeriodInquiry'
                 parts = attr_name.rstrip('s').split('_')
                 service_name = ''.join(part.title() for part in parts)
                 services.append((service_name, attr_name, attr))
     
-    # Sort services alphabetically
-    services.sort(key=lambda x: x[0])
-    
-    # Generate stub for each service
+    # Generate service class stubs
     for service_name, attr_name, service_instance in services:
         service_lines = generate_service_stub(service_name, service_instance)
-        services_lines.extend(service_lines)
-        services_lines.append("")  # Empty line between classes
+        client_lines.extend(service_lines)
+        client_lines.append("")  # Empty line between classes
     
-    # Write services.pyi
-    (stubs_dir / "services.pyi").write_text("\n".join(services_lines))
-    print(f"✅ Generated stubs for {len(services)} services in src/easy_acumatica/stubs/services.pyi")
-    
-    # Generate client.pyi
-    print("Generating client.pyi...")
-    client_lines = [
-        "from __future__ import annotations",
-        "from typing import Any, Union, List, Dict, Optional",
-        "from .. import models",
-        "from .services import *",
-        "import requests",
-        "",
-        "",
+    # Generate client class
+    client_lines.extend([
         "class AcumaticaClient:",
         '    """Main client for interacting with Acumatica API."""',
         "    ",
@@ -301,13 +264,13 @@ def generate_stubs_from_client(client: AcumaticaClient, output_dir: Path) -> Non
         "    session: requests.Session",
         "    ",
         "    # Service attributes"
-    ]
+    ])
     
     for service_name, attr_name, _ in services:
         client_lines.append(f"    {attr_name}: {service_name}Service")
     
     client_lines.extend([
-        "    models: models",
+        "    models: Any  # This points to the models module",
         "    ",
         "    def __init__(",
         "        self,",
@@ -335,10 +298,58 @@ def generate_stubs_from_client(client: AcumaticaClient, output_dir: Path) -> Non
     ])
     
     # Write client.pyi
-    (stubs_dir / "client.pyi").write_text("\n".join(client_lines))
+    (package_dir / "client.pyi").write_text("\n".join(client_lines))
     print("✅ Generated client.pyi")
     
-    # Create __init__.pyi for the stubs package
+    # Generate models.pyi
+    print("Generating models.pyi...")
+    model_lines = [
+        "from __future__ import annotations",
+        "from typing import Any, List, Optional, Union",
+        "from dataclasses import dataclass",
+        "from datetime import datetime",
+        "from .core import BaseDataClassModel",
+        ""
+    ]
+    
+    # Get all model classes from client.models
+    model_classes = []
+    for attr_name in dir(client.models):
+        if not attr_name.startswith('_'):
+            attr = getattr(client.models, attr_name)
+            if isinstance(attr, type) and issubclass(attr, BaseDataClassModel):
+                model_classes.append((attr_name, attr))
+    
+    # Sort models alphabetically
+    model_classes.sort(key=lambda x: x[0])
+    
+    # Generate stub for each model
+    for model_name, model_class in model_classes:
+        model_lines.extend(generate_model_stub(model_class))
+        model_lines.append("")  # Empty line between classes
+    
+    # Write models.pyi
+    (package_dir / "models.pyi").write_text("\n".join(model_lines))
+    print(f"✅ Generated models.pyi with {len(model_classes)} models")
+    
+    print(f"\n✅ Generated inline stub files in {package_dir}")
+    print("These stubs will be automatically discovered by VSCode, mypy, and other type checkers!")
+
+
+def generate_stubs_external(client: AcumaticaClient, output_dir: Path) -> None:
+    """
+    Generate external stub package (easy_acumatica-stubs).
+    This creates a separate installable package with stubs.
+    """
+    stubs_dir = output_dir / "easy_acumatica-stubs"
+    stubs_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Generating external stub package in {stubs_dir}...")
+    
+    # Generate the same files as inline method
+    generate_stubs_inline(client, stubs_dir)
+    
+    # Create __init__.pyi for the stub package
     init_lines = [
         '"""Type stubs for easy_acumatica."""',
         "from .client import AcumaticaClient",
@@ -346,20 +357,42 @@ def generate_stubs_from_client(client: AcumaticaClient, output_dir: Path) -> Non
         "__all__ = ['AcumaticaClient']",
     ]
     (stubs_dir / "__init__.pyi").write_text("\n".join(init_lines))
-    print("✅ Generated __init__.pyi")
     
-    print(f"\n✅ All stub files generated successfully in {stubs_dir}")
+    # Create setup.py for the stub package
+    setup_py_content = '''"""Setup script for easy_acumatica-stubs package."""
+from setuptools import setup, find_packages
+
+setup(
+    name="easy_acumatica-stubs",
+    version="0.1.0",
+    description="Type stubs for easy_acumatica",
+    packages=find_packages(),
+    package_data={
+        "easy_acumatica-stubs": ["*.pyi", "py.typed"],
+    },
+    install_requires=[
+        "easy_acumatica",  # The runtime package
+    ],
+    python_requires=">=3.8",
+)
+'''
+    (output_dir / "setup.py").write_text(setup_py_content)
+    
+    print(f"\n✅ Generated external stub package in {stubs_dir}")
+    print("To install: cd to the output directory and run 'pip install -e .'")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate .pyi stub files for easy-acumatica by introspecting a live client instance.")
+    parser = argparse.ArgumentParser(description="Generate PEP 561 compliant stub files for easy-acumatica.")
     parser.add_argument("--url", help="Base URL of the Acumatica instance.")
     parser.add_argument("--username", help="Username for authentication.")
     parser.add_argument("--password", help="Password for authentication.")
     parser.add_argument("--tenant", help="The tenant to connect to.")
     parser.add_argument("--endpoint-version", help="The API endpoint version to use.")
     parser.add_argument("--endpoint-name", default="Default", help="The API endpoint name.")
-    parser.add_argument("--output-dir", default=".", help="Output directory for stub files (stubs will be created in a subdirectory).")
+    parser.add_argument("--output-dir", default=".", help="Output directory for stub files.")
+    parser.add_argument("--mode", choices=["inline", "external", "both"], default="inline", 
+                       help="Stub generation mode: 'inline' (PEP 561 compliant, recommended), 'external' (separate package), or 'both'")
     args = parser.parse_args()
 
     # Try to load from .env file if it exists
@@ -374,7 +407,7 @@ def main():
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
                     
-                    # Set environment variables for the client to pick up
+                    # Set arguments from env if not provided
                     if key == 'ACUMATICA_URL' and not args.url:
                         args.url = value
                     elif key == 'ACUMATICA_USERNAME' and not args.username:
@@ -388,7 +421,7 @@ def main():
                     elif key == 'ACUMATICA_ENDPOINT_VERSION' and not args.endpoint_version:
                         args.endpoint_version = value
 
-    # Get credentials interactively if not provided from command line or .env
+    # Get credentials interactively if not provided
     if not args.url:
         args.url = input("Enter Acumatica URL: ")
     if not args.tenant:
@@ -412,13 +445,41 @@ def main():
     
     print("✅ Successfully connected and initialized client")
     
-    # Generate stubs
+    # Generate stubs based on mode
     output_dir = Path(args.output_dir)
-    generate_stubs_from_client(client, output_dir)
+    
+    if args.mode in ["inline", "both"]:
+        # Find the package installation directory
+        package_dir = Path(easy_acumatica.__file__).parent
+        generate_stubs_inline(client, package_dir)
+    
+    if args.mode in ["external", "both"]:
+        generate_stubs_external(client, output_dir)
     
     # Clean up
     client.logout()
     print("\n✅ Logged out successfully")
+    print("\n" + "="*60)
+    print("STUB GENERATION COMPLETE!")
+    print("="*60)
+    
+    if args.mode in ["inline", "both"]:
+        print("\n📝 INLINE STUBS (Recommended):")
+        print("✅ Generated PEP 561 compliant stub files")
+        print("✅ Added py.typed marker file")
+        print("✅ Stubs will be automatically discovered by:")
+        print("   - VSCode with Pylance")
+        print("   - mypy")
+        print("   - PyCharm")
+        print("   - Other PEP 561 compliant type checkers")
+        print("\n🔄 No action needed - restart your IDE and enjoy type hints!")
+    
+    if args.mode in ["external", "both"]:
+        print(f"\n📦 EXTERNAL STUB PACKAGE:")
+        print(f"✅ Generated installable stub package in {output_dir}")
+        print("📋 To use:")
+        print(f"   cd {output_dir}")
+        print("   pip install -e .")
 
 
 if __name__ == "__main__":
