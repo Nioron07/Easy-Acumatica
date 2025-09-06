@@ -283,7 +283,7 @@ class AcumaticaClient:
         
         # Set default headers
         session.headers.update({
-            "User-Agent": f"easy-acumatica/0.4.5 Python/{requests.__version__}",
+            "User-Agent": f"easy-acumatica/0.4.9 Python/{requests.__version__}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         })
