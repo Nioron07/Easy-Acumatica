@@ -117,7 +117,35 @@ class BaseService:
         params = options.to_params() if options else None
 
         return self._request("get", url, params=params)
-
+    def _get_by_keys(
+        self,
+        key_fields: Dict[str, Any],
+        options: QueryOptions | None = None,
+        api_version: Optional[str] = None
+    ) -> Any:
+        """
+        Performs a GET request using key field values in the URL path.
+        According to Acumatica REST API docs, key values should be in the URL path:
+        http://<base>/<entity>/<key1>/<key2>/...
+        """
+        url = self._get_url(api_version)
+        
+        # Build URL with key values in path
+        # Convert key field values to URL path segments
+        key_values = []
+        for key, value in key_fields.items():
+            # Convert value to string, handling None values
+            if value is None:
+                raise ValueError(f"Key field '{key}' cannot be None")
+            key_values.append(str(value))
+        
+        # Append key values to URL as path segments
+        if key_values:
+            key_path = "/".join(key_values)
+            url = f"{url}/{key_path}"
+        
+        params = options.to_params() if options else None
+        return self._request("get", url, params=params)
     def _put(
         self,
         data: Any,

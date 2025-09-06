@@ -1,5 +1,3 @@
-# src/easy_acumatica/service_factory.py
-
 from __future__ import annotations
 
 import re
@@ -16,7 +14,7 @@ from .odata import QueryOptions
 if TYPE_CHECKING:
     from .client import AcumaticaClient
 
-def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False) -> str:
+def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False, is_get_by_keys: bool = False) -> str:
     """Generates a detailed docstring from OpenAPI schema details."""
 
     if is_get_files:
@@ -32,6 +30,27 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
         full_docstring += returns_section
         return textwrap.indent(full_docstring, '    ')
 
+    if is_get_by_keys:
+        description = f"Retrieves a {service_name} entity by its key field values."
+        args_section = [
+            "Args:",
+            "    **key_fields: Key field values as keyword arguments (e.g., CustomerID='ABCCOMP').",
+            "                  The key values will be appended to the URL path as: /{value1}/{value2}/...",
+            "    options (QueryOptions, optional): OData query options like $expand, $select, etc.",
+            "    api_version (str, optional): The API version to use for this request."
+        ]
+        returns_section = "Returns:\n    A dictionary containing the entity data."
+        example_section = [
+            "Example:",
+            f"    # For a Customer entity:",
+            f"    customer = service.get_by_keys(CustomerID='ABCCOMP')",
+            f"    # This creates URL: .../Customer/ABCCOMP"
+        ]
+        full_docstring = f"{description}\n\n"
+        full_docstring += "\n".join(args_section) + "\n\n"
+        full_docstring += returns_section + "\n\n"
+        full_docstring += "\n".join(example_section)
+        return textwrap.indent(full_docstring, '    ')
 
     summary = details.get("summary", "No summary available.")
     description = f"{summary} for the {service_name} entity."
@@ -61,7 +80,7 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
         args_section.append("    data (bytes): The file content.")
         args_section.append("    comment (str, optional): A comment about the file.")
 
-    if any(s in operation_id for s in ["GetList", "GetById", "GetByKeys", "PutEntity"]):
+    if any(s in operation_id for s in ["GetList", "GetById", "PutEntity"]):
         args_section.append("    options (QueryOptions, optional): OData query options.")
 
     args_section.append("    api_version (str, optional): The API version to use for this request.")
@@ -84,7 +103,6 @@ def _generate_docstring(service_name: str, operation_id: str, details: Dict[str,
             returns_section += "    None."
         else:
             returns_section += "    The JSON response from the API or None."
-
 
     full_docstring = f"{description}\n\n"
     if len(args_section) > 1:
@@ -122,19 +140,19 @@ def generate_inquiry_docstring(xml_file_path: str, container_name: str, inquiry_
 
         # 3. Format the fields and the final docstring
         if properties:
-            fields_str = "\n".join([f"    - {prop.get('Name')} ({prop.get('Type').split('.', 1)[-1]})" for prop in properties])
+            fields_str = "\n".join([f"        - {prop.get('Name')} ({prop.get('Type').split('.', 1)[-1]})" for prop in properties])
         else:
-            fields_str = "    (No properties found for this EntityType)"
+            fields_str = "        (No properties found for this EntityType)"
 
         docstring = f"""Generic Inquiry for the '{inquiry_name}' endpoint
 
-    Args:
-        options (QueryOptions, optional): OData query options like $filter, $top, etc.
+        Args:
+            options (QueryOptions, optional): OData query options like $filter, $top, etc.
 
-    Returns:
-        A dictionary containing the API response, typically a list of records with the following fields:
+        Returns:
+            A dictionary containing the API response, typically a list of records with the following fields:
 {fields_str}
-    """
+        """
         return docstring
 
     except (FileNotFoundError, ET.ParseError) as e:
@@ -177,14 +195,12 @@ class ServiceFactory:
             services[tag] = service_instance
         print(f"Completed building {len(services)} services from OpenAPI schema.")
 
-
         tag = "Inquirie"
         service_class = type(f"{tag}Service", (BaseService,), {
             "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
         })
         inquiries_service = service_class(self._client)
         services[tag] = inquiries_service
-
 
         # Now populate it using the refactored loop
         try:
@@ -263,19 +279,39 @@ class ServiceFactory:
         method_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
         method_name = method_name.replace('__', '_')
 
-        docstring = _generate_docstring(service.entity_name, operation_id, details)
-
+        # Separate method templates for different operations
         def get_list(self, options: QueryOptions | None = None, api_version: str | None = None):
             return self._get(options=options, api_version=api_version)
 
         def get_by_id(self, entity_id: Union[str, list], options: QueryOptions | None = None, api_version: str | None = None):
             return self._get(entity_id=entity_id, options=options, api_version=api_version)
 
+        def get_by_keys(self, options: QueryOptions | None = None, api_version: str | None = None, **key_fields):
+            """
+            Retrieves a record by key field values.
+            Key field values are passed as keyword arguments and appended to the URL path.
+            """
+            if not key_fields:
+                raise ValueError("At least one key field must be provided as a keyword argument")
+            return self._get_by_keys(key_fields=key_fields, options=options, api_version=api_version)
+
         def put_entity(self, data: Union[dict, BaseDataClassModel], options: QueryOptions | None = None, api_version: str | None = None):
             return self._put(data, options=options, api_version=api_version)
 
         def delete_by_id(self, entity_id: Union[str, list], api_version: str | None = None):
             return self._delete(entity_id=entity_id, api_version=api_version)
+
+        def delete_by_keys(self, api_version: str | None = None, **key_fields):
+            """
+            Deletes a record by key field values.
+            Key field values are passed as keyword arguments and appended to the URL path.
+            """
+            if not key_fields:
+                raise ValueError("At least one key field must be provided as a keyword argument")
+            # Build key path for deletion
+            key_values = [str(value) for value in key_fields.values()]
+            key_path = "/".join(key_values)
+            return self._delete(entity_id=key_path, api_version=api_version)
 
         def put_file(self, entity_id: str, filename: str, data: bytes, comment: str | None = None, api_version: str | None = None):
             return self._put_file(entity_id, filename, data, comment=comment, api_version=api_version)
@@ -285,7 +321,6 @@ class ServiceFactory:
             payload = invocation.build()
             entity_payload = payload.get('entity', {})
             params_payload = payload.get('parameters')
-
 
             # Clean entity_payload
             entity_payload = {
@@ -308,7 +343,10 @@ class ServiceFactory:
         def get_schema(self, api_version: str | None = None):
             return self._get_schema(api_version=api_version)
 
+        # Map operation IDs to appropriate method templates and generate docstrings
         template = None
+        is_get_by_keys = False
+
         if "PutFile" in operation_id:
             template = put_file
             self._add_get_files_method(service)
@@ -318,15 +356,27 @@ class ServiceFactory:
             template = invoke_action
         elif "PutEntity" in operation_id:
             template = put_entity
-        elif "GetById" in operation_id or "GetByKeys" in operation_id:
+        elif "GetById" in operation_id:
             template = get_by_id
+        elif "GetByKeys" in operation_id:
+            template = get_by_keys
+            is_get_by_keys = True
         elif "GetList" in operation_id:
             template = get_list
-        elif "DeleteById" in operation_id or "DeleteByKeys" in operation_id:
+        elif "DeleteById" in operation_id:
             template = delete_by_id
+        elif "DeleteByKeys" in operation_id:
+            template = delete_by_keys
+            is_get_by_keys = True  # Use similar docstring pattern for delete by keys
 
         if not template:
             return
+
+        # Generate appropriate docstring
+        if is_get_by_keys and "Delete" not in operation_id:
+            docstring = _generate_docstring(service.entity_name, operation_id, details, is_get_by_keys=True)
+        else:
+            docstring = _generate_docstring(service.entity_name, operation_id, details)
 
         template.__doc__ = docstring
         final_method = update_wrapper(template, template)
@@ -357,4 +407,3 @@ class ServiceFactory:
         inquiry_method.__name__ = method_name
         
         setattr(service, method_name, inquiry_method.__get__(service, BaseService))
-
