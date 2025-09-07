@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 class AcumaticaError(Exception):
     """
     Base exception class for all errors related to the Acumatica API.
-    
+
     Attributes:
         message: Error message
         status_code: HTTP status code (if applicable)
@@ -24,11 +24,12 @@ class AcumaticaError(Exception):
         self,
         message: str,
         status_code: Optional[int] = None,
-        response_data: Optional[Dict[str, Any]] = None
+        response_data: Optional[Dict[str, Any]] = None,
+        **kwargs
     ):
         """
         Initialize AcumaticaError.
-        
+
         Args:
             message: Error message
             status_code: HTTP status code
@@ -49,7 +50,7 @@ class AcumaticaError(Exception):
 class AcumaticaAuthError(AcumaticaError):
     """
     Raised for authentication-related errors.
-    
+
     This includes:
     - Invalid credentials (401)
     - Insufficient permissions (403)
@@ -62,7 +63,7 @@ class AcumaticaAuthError(AcumaticaError):
 class AcumaticaConnectionError(AcumaticaError):
     """
     Raised for connection-related errors.
-    
+
     This includes:
     - Network connectivity issues
     - DNS resolution failures
@@ -75,7 +76,7 @@ class AcumaticaConnectionError(AcumaticaError):
 class AcumaticaTimeoutError(AcumaticaConnectionError):
     """
     Raised when a request times out.
-    
+
     This is a specific type of connection error that occurs
     when the server doesn't respond within the timeout period.
     """
@@ -85,7 +86,7 @@ class AcumaticaTimeoutError(AcumaticaConnectionError):
 class AcumaticaAPIError(AcumaticaError):
     """
     Raised for API-specific errors.
-    
+
     This includes:
     - Invalid endpoint
     - Malformed requests
@@ -96,27 +97,25 @@ class AcumaticaAPIError(AcumaticaError):
     def __init__(
         self,
         message: str,
-        status_code: Optional[int] = None,
-        response_data: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
+        **kwargs
     ):
         """
         Initialize AcumaticaAPIError.
-        
+
         Args:
             message: Error message
-            status_code: HTTP status code
-            response_data: Response data from API
             error_code: Specific API error code
+            **kwargs: Additional arguments for parent class
         """
-        super().__init__(message, status_code, response_data)
+        super().__init__(message, **kwargs)
         self.error_code = error_code
 
 
 class AcumaticaValidationError(AcumaticaAPIError):
     """
     Raised when data validation fails.
-    
+
     This includes:
     - Missing required fields
     - Invalid field values
@@ -131,7 +130,7 @@ class AcumaticaValidationError(AcumaticaAPIError):
     ):
         """
         Initialize AcumaticaValidationError.
-        
+
         Args:
             message: Error message
             field_errors: Dictionary of field-specific errors
@@ -144,7 +143,7 @@ class AcumaticaValidationError(AcumaticaAPIError):
 class AcumaticaRateLimitError(AcumaticaAPIError):
     """
     Raised when API rate limits are exceeded.
-    
+
     Attributes:
         retry_after: Seconds to wait before retrying (if provided by API)
     """
@@ -157,20 +156,21 @@ class AcumaticaRateLimitError(AcumaticaAPIError):
     ):
         """
         Initialize AcumaticaRateLimitError.
-        
+
         Args:
             message: Error message
             retry_after: Seconds to wait before retrying
             **kwargs: Additional arguments for parent class
         """
-        super().__init__(message, status_code=429, **kwargs)
+        kwargs['status_code'] = 429
+        super().__init__(message, **kwargs)
         self.retry_after = retry_after
 
 
 class AcumaticaSchemaError(AcumaticaError):
     """
     Raised when there are issues with the API schema.
-    
+
     This includes:
     - Unable to fetch schema
     - Invalid schema format
@@ -182,7 +182,7 @@ class AcumaticaSchemaError(AcumaticaError):
 class AcumaticaConfigError(AcumaticaError):
     """
     Raised for configuration-related errors.
-    
+
     This includes:
     - Missing required configuration
     - Invalid configuration values
@@ -194,7 +194,7 @@ class AcumaticaConfigError(AcumaticaError):
 class AcumaticaNotFoundError(AcumaticaAPIError):
     """
     Raised when a requested resource is not found (404).
-    
+
     Attributes:
         resource_type: Type of resource (e.g., "Contact", "Invoice")
         resource_id: ID of the missing resource
@@ -209,14 +209,15 @@ class AcumaticaNotFoundError(AcumaticaAPIError):
     ):
         """
         Initialize AcumaticaNotFoundError.
-        
+
         Args:
             message: Error message
             resource_type: Type of missing resource
             resource_id: ID of missing resource
             **kwargs: Additional arguments for parent class
         """
-        super().__init__(message, status_code=404, **kwargs)
+        kwargs['status_code'] = 404
+        super().__init__(message, **kwargs)
         self.resource_type = resource_type
         self.resource_id = resource_id
 
@@ -224,7 +225,7 @@ class AcumaticaNotFoundError(AcumaticaAPIError):
 class AcumaticaServerError(AcumaticaAPIError):
     """
     Raised for server-side errors (5xx).
-    
+
     This includes:
     - Internal server errors (500)
     - Service unavailable (503)
@@ -236,11 +237,11 @@ class AcumaticaServerError(AcumaticaAPIError):
 def parse_api_error(response_data: Dict[str, Any], status_code: int) -> AcumaticaError:
     """
     Parse API response and return appropriate exception.
-    
+
     Args:
         response_data: Response data from API
         status_code: HTTP status code
-        
+
     Returns:
         Appropriate AcumaticaError subclass instance
     """
@@ -272,10 +273,11 @@ def parse_api_error(response_data: Dict[str, Any], status_code: int) -> Acumatic
                 message,
                 field_errors=field_errors,
                 status_code=status_code,
-                response_data=response_data
+                response_data=response_data,
+                error_code=error_code
             )
-        return AcumaticaAPIError(message, status_code, response_data, error_code)
+        return AcumaticaAPIError(message, status_code=status_code, response_data=response_data, error_code=error_code)
     elif 500 <= status_code < 600:
-        return AcumaticaServerError(message, status_code, response_data, error_code)
+        return AcumaticaServerError(message, status_code=status_code, response_data=response_data, error_code=error_code)
     else:
         return AcumaticaError(message, status_code, response_data)

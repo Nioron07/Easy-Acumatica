@@ -254,9 +254,11 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
         written_files[path_str] = content
         return None
     
-    with patch.object(Path, 'mkdir', mock_mkdir):
-        with patch.object(Path, 'write_text', mock_write_text):
-            generate_stubs.main()
+    # CORRECTED: We only need to patch write_text
+    with patch.object(Path, 'write_text', mock_write_text):
+        # We need to import and run main from generate_stubs
+        from easy_acumatica import generate_stubs
+        generate_stubs.main()
     
     # Verify stubs directory was created in the right location
     # When output_dir is ".", the code uses the package installation directory
