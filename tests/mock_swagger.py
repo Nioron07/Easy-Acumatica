@@ -2,8 +2,7 @@
 
 def get_swagger_json():
     """
-    Returns a more realistic mock OpenAPI (swagger) schema that includes
-    the standard 'id' field on entities and a 'comment' on file links.
+    Returns the base mock OpenAPI (swagger) schema.
     """
     return {
         "openapi": "3.0.1",
@@ -79,3 +78,56 @@ def get_swagger_json():
             }
         },
     }
+
+
+def get_modified_swagger_json():
+    """
+    Returns a modified version of the swagger schema to test differential caching.
+    This version adds new fields and models to simulate schema changes.
+    """
+    base_schema = get_swagger_json()
+    
+    # Modify the TestModel to add new fields
+    test_model = base_schema["components"]["schemas"]["TestModel"]
+    test_model["allOf"][1]["properties"].update({
+        "NewField": {"$ref": "#/components/schemas/StringValue"},
+        "CreatedDate": {"$ref": "#/components/schemas/DateTimeValue"},
+        "ModifiedBy": {"$ref": "#/components/schemas/StringValue"},
+    })
+    
+    # Add a new model to test model additions
+    base_schema["components"]["schemas"]["ExtendedTestModel"] = {
+        "allOf": [
+            {"$ref": "#/components/schemas/TestModel"},
+            {
+                "type": "object",
+                "properties": {
+                    "ExtensionField": {"$ref": "#/components/schemas/StringValue"},
+                    "Priority": {"$ref": "#/components/schemas/IntValue"},
+                }
+            }
+        ]
+    }
+    
+    # Add DateTimeValue and IntValue schemas
+    base_schema["components"]["schemas"]["DateTimeValue"] = {
+        "type": "object", 
+        "properties": {"value": {"type": "string", "format": "date-time"}}
+    }
+    base_schema["components"]["schemas"]["IntValue"] = {
+        "type": "object", 
+        "properties": {"value": {"type": "integer"}}
+    }
+    
+    # Add new paths for ExtendedTest service
+    base_schema["paths"]["/ExtendedTest"] = {
+        "get": {"tags": ["ExtendedTest"], "operationId": "ExtendedTest_GetList", "summary": "Retrieves a list of ExtendedTest entities.", "responses": {"200": {"description": "Success"}}},
+        "put": {"tags": ["ExtendedTest"], "operationId": "ExtendedTest_PutEntity", "summary": "Creates or updates an ExtendedTest entity.", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExtendedTestModel"}}}}, "responses": {"200": {"description": "Success"}}},
+    }
+    
+    base_schema["paths"]["/ExtendedTest/{id}"] = {
+        "get": {"tags": ["ExtendedTest"], "operationId": "ExtendedTest_GetById", "summary": "Retrieves an ExtendedTest entity by its ID.", "responses": {"200": {"description": "Success"}}},
+        "delete": {"tags": ["ExtendedTest"], "operationId": "ExtendedTest_DeleteById", "summary": "Deletes an ExtendedTest entity by its ID.", "responses": {"204": {"description": "Success"}}},
+    }
+    
+    return base_schema

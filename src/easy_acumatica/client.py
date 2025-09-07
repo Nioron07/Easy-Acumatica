@@ -66,6 +66,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 from weakref import WeakSet
+import xml.etree.ElementTree as ET
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -542,54 +543,810 @@ class AcumaticaClient:
                 logger.debug(f"Found endpoint: {name} v{endpoint.get('version')}")
 
     def _build_components(self) -> None:
-        """Build models and services with caching support."""
+        """Build models and services with differential caching support."""
+        if not self.cache_enabled:
+            # No caching - build everything from scratch
+            schema = self._fetch_schema(self.endpoint_name, self.endpoint_version)
+            self._build_dynamic_models(schema)
+            self._build_dynamic_services(schema)
+            return
+
         cache_key = self._get_cache_key()
         cache_file = self.cache_dir / f"{cache_key}.pkl"
-        schema_hash_file = self.cache_dir / f"{cache_key}_schema_hash.txt"
         
-        use_cache = (
-            self.cache_enabled and 
-            not self.force_rebuild and
-            cache_file.exists() and 
-            schema_hash_file.exists() and
-            self._is_cache_valid(schema_hash_file)
-        )
+        # Always fetch current schema and inquiries to compare
+        current_schema = self._fetch_schema(self.endpoint_name, self.endpoint_version)
+        current_inquiries_xml = None
         
-        if use_cache:
-            try:
-                # Load from cache
-                with open(cache_file, 'rb') as f:
-                    cached_data = pickle.load(f)
-                
-                # Restore models
-                for name, model_class in cached_data['models'].items():
-                    setattr(self.models, name, model_class)
-                    self._model_classes[name] = model_class
-                
-                # Restore services - we need to rebuild these as they can't be pickled easily
-                self._cache_hits += 1
-                logger.info(f"Loaded {len(cached_data['models'])} models from cache")
-                
-                # Still need to build services fresh
-                schema = self._fetch_schema(self.endpoint_name, self.endpoint_version)
-                self._build_dynamic_services(schema)
-                
-                return
-                
-            except Exception as e:
-                logger.warning(f"Failed to load from cache: {e}. Rebuilding...")
-                self._cache_misses += 1
-        else:
+        try:
+            current_inquiries_xml = self._fetch_gi_xml()
+        except Exception as e:
+            logger.warning(f"Could not fetch inquiries XML: {e}")
+        
+        if self.force_rebuild or not cache_file.exists():
+            # Fresh build
+            logger.info("Building components from scratch (no cache or force rebuild)")
+            self._build_dynamic_models(current_schema)
+            self._build_dynamic_services(current_schema)
+            if current_inquiries_xml:
+                self._build_inquiries_service(current_inquiries_xml)
+            self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
             self._cache_misses += 1
+            return
+
+        # Load existing cache for differential comparison
+        try:
+            cached_data = self._load_differential_cache(cache_file)
+            if cached_data is None:
+                # Cache invalid, rebuild everything
+                logger.info("Cache invalid, rebuilding everything")
+                self._build_dynamic_models(current_schema)
+                self._build_dynamic_services(current_schema)
+                if current_inquiries_xml:
+                    self._build_inquiries_service(current_inquiries_xml)
+                self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
+                self._cache_misses += 1
+                return
+
+            # Perform differential update
+            self._perform_differential_update(cached_data, current_schema, current_inquiries_xml)
+            self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
+            
+        except Exception as e:
+            logger.warning(f"Differential caching failed: {e}. Rebuilding from scratch.")
+            self._build_dynamic_models(current_schema)
+            self._build_dynamic_services(current_schema)
+            if current_inquiries_xml:
+                self._build_inquiries_service(current_inquiries_xml)
+            self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
+            self._cache_misses += 1
+
+    def _save_differential_cache(self, cache_file: Path, schema: Dict[str, Any], inquiries_xml_path: str = None) -> None:
+        """Save cache with differential tracking information."""
+        try:
+            # Calculate hashes for each component
+            model_hashes = self._calculate_model_hashes(schema)
+            service_hashes = self._calculate_service_hashes(schema)
+            inquiry_hashes = self._calculate_inquiry_hashes(inquiries_xml_path) if inquiries_xml_path else {}
+            
+            cache_data = {
+                'version': '1.1',  # Cache format version (updated for inquiries)
+                'timestamp': time.time(),
+                'schema_hash': self._calculate_schema_hash(schema),
+                'inquiries_hash': self._calculate_inquiries_xml_hash(inquiries_xml_path) if inquiries_xml_path else None,
+                'model_hashes': model_hashes,
+                'service_hashes': service_hashes,
+                'inquiry_hashes': inquiry_hashes,
+                'models': self._model_classes.copy(),
+                'service_definitions': self._extract_service_definitions(schema),
+                'inquiry_definitions': self._extract_inquiry_definitions(inquiries_xml_path) if inquiries_xml_path else {},
+                'endpoint_info': {
+                    'name': self.endpoint_name,
+                    'version': self.endpoint_version,
+                    'base_url': self.base_url,
+                    'tenant': self.tenant
+                }
+            }
+            
+            # Save to temporary file first, then move to prevent corruption
+            temp_file = cache_file.with_suffix('.tmp')
+            with open(temp_file, 'wb') as f:
+                pickle.dump(cache_data, f)
+            
+            temp_file.replace(cache_file)
+            logger.debug(f"Saved differential cache with {len(self._model_classes)} models, "
+                        f"{len(self._service_instances)} services, {len(inquiry_hashes)} inquiries")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save differential cache: {e}")
+
+    def _load_differential_cache(self, cache_file: Path) -> Dict[str, Any]:
+        """Load and validate differential cache."""
+        try:
+            with open(cache_file, 'rb') as f:
+                cached_data = pickle.load(f)
+            
+            # Validate cache format version
+            cache_version = cached_data.get('version', '1.0')
+            if cache_version not in ['1.0', '1.1']:
+                logger.debug(f"Cache format version {cache_version} not supported")
+                return None
+            
+            # Check TTL
+            cache_age = time.time() - cached_data.get('timestamp', 0)
+            if cache_age > (self.cache_ttl_hours * 3600):
+                logger.debug("Cache expired due to TTL")
+                return None
+            
+            # Validate endpoint compatibility
+            endpoint_info = cached_data.get('endpoint_info', {})
+            if (endpoint_info.get('name') != self.endpoint_name or
+                endpoint_info.get('version') != self.endpoint_version or
+                endpoint_info.get('base_url') != self.base_url or
+                endpoint_info.get('tenant') != self.tenant):
+                logger.debug("Cache endpoint info mismatch")
+                return None
+                
+            return cached_data
+            
+        except Exception as e:
+            logger.debug(f"Failed to load cache: {e}")
+            return None
+
+    def _perform_differential_update(self, cached_data: Dict[str, Any], current_schema: Dict[str, Any], inquiries_xml_path: str = None) -> None:
+        """Perform differential update of models, services, and inquiries."""
+        logger.info("Performing differential cache update")
         
-        # Build from scratch
-        schema = self._fetch_schema(self.endpoint_name, self.endpoint_version)
-        self._build_dynamic_models(schema)
-        self._build_dynamic_services(schema)
+        # Calculate current hashes
+        current_model_hashes = self._calculate_model_hashes(current_schema)
+        current_service_hashes = self._calculate_service_hashes(current_schema)
+        current_inquiry_hashes = self._calculate_inquiry_hashes(inquiries_xml_path) if inquiries_xml_path else {}
         
-        # Cache the results if caching is enabled
+        cached_model_hashes = cached_data.get('model_hashes', {})
+        cached_service_hashes = cached_data.get('service_hashes', {})
+        cached_inquiry_hashes = cached_data.get('inquiry_hashes', {})
+        
+        # Track changes
+        models_changed = 0
+        models_added = 0
+        models_removed = 0
+        services_changed = 0
+        inquiries_changed = 0
+        inquiries_added = 0
+        inquiries_removed = 0
+        cache_hits = 0
+        
+        # === UPDATE MODELS ===
+        
+        # Find models to remove (in cache but not in current schema)
+        models_to_remove = set(cached_model_hashes.keys()) - set(current_model_hashes.keys())
+        for model_name in models_to_remove:
+            self._remove_model(model_name)
+            models_removed += 1
+            logger.debug(f"Removed model: {model_name}")
+        
+        # Find models to add or update
+        models_to_build = []
+        for model_name, current_hash in current_model_hashes.items():
+            cached_hash = cached_model_hashes.get(model_name)
+            
+            if cached_hash is None:
+                # New model
+                models_to_build.append(model_name)
+                models_added += 1
+                logger.debug(f"New model detected: {model_name}")
+            elif cached_hash != current_hash:
+                # Changed model
+                models_to_build.append(model_name)
+                models_changed += 1
+                logger.debug(f"Changed model detected: {model_name}")
+            else:
+                # Unchanged model - restore from cache
+                cached_models = cached_data.get('models', {})
+                if model_name in cached_models:
+                    model_class = cached_models[model_name]
+                    setattr(self.models, model_name, model_class)
+                    self._model_classes[model_name] = model_class
+                    cache_hits += 1
+                else:
+                    # Cache missing model data, rebuild
+                    models_to_build.append(model_name)
+                    models_changed += 1
+        
+        # Build new/changed models
+        if models_to_build:
+            self._build_specific_models(current_schema, models_to_build)
+        
+        # === UPDATE SERVICES ===
+        
+        # Find services to remove
+        services_to_remove = set(cached_service_hashes.keys()) - set(current_service_hashes.keys())
+        for service_name in services_to_remove:
+            self._remove_service(service_name)
+            logger.debug(f"Removed service: {service_name}")
+        
+        # Find services to rebuild (new, changed, or dependent on changed models)
+        services_to_rebuild = set()
+        
+        for service_name, current_hash in current_service_hashes.items():
+            cached_hash = cached_service_hashes.get(service_name)
+            
+            if cached_hash is None:
+                services_to_rebuild.add(service_name)
+                logger.debug(f"New service detected: {service_name}")
+            elif cached_hash != current_hash:
+                services_to_rebuild.add(service_name)
+                services_changed += 1
+                logger.debug(f"Changed service detected: {service_name}")
+        
+        # Also rebuild services that depend on changed models
+        changed_models = set(models_to_build)
+        if changed_models:
+            dependent_services = self._find_services_dependent_on_models(current_schema, changed_models)
+            services_to_rebuild.update(dependent_services)
+        
+        # Build services (excluding inquiries service which is handled separately)
+        if services_to_rebuild:
+            regular_services = {name for name in services_to_rebuild if name != "Inquirie"}
+            if regular_services:
+                self._build_specific_services(current_schema, regular_services)
+        else:
+            # No services need rebuilding, but we still need to ensure they exist
+            self._restore_services_from_cache(cached_data, current_schema)
+        
+        # === UPDATE INQUIRIES ===
+        
+        if inquiries_xml_path:
+            # Find inquiries to remove
+            inquiries_to_remove = set(cached_inquiry_hashes.keys()) - set(current_inquiry_hashes.keys())
+            
+            # Find inquiries to add or update
+            inquiries_to_build = []
+            inquiries_service_needs_update = False
+            
+            for inquiry_name, current_hash in current_inquiry_hashes.items():
+                cached_hash = cached_inquiry_hashes.get(inquiry_name)
+                
+                if cached_hash is None:
+                    inquiries_to_build.append(inquiry_name)
+                    inquiries_added += 1
+                    inquiries_service_needs_update = True
+                    logger.debug(f"New inquiry detected: {inquiry_name}")
+                elif cached_hash != current_hash:
+                    inquiries_to_build.append(inquiry_name)
+                    inquiries_changed += 1
+                    inquiries_service_needs_update = True
+                    logger.debug(f"Changed inquiry detected: {inquiry_name}")
+            
+            # If any inquiries changed or we have removals, rebuild the entire inquiries service
+            if inquiries_to_remove or inquiries_service_needs_update:
+                logger.debug("Rebuilding inquiries service due to changes")
+                self._build_inquiries_service(inquiries_xml_path)
+                inquiries_removed = len(inquiries_to_remove)
+            elif "Inquirie" not in self._service_instances:
+                # Inquiries service doesn't exist, build it
+                logger.debug("Building missing inquiries service")
+                self._build_inquiries_service(inquiries_xml_path)
+            else:
+                # No changes to inquiries, keep existing service
+                logger.debug("No changes to inquiries, keeping existing service")
+        
+        # Update counters
+        self._cache_hits += cache_hits
+        total_changes = (models_changed + models_added + services_changed + 
+                        inquiries_changed + inquiries_added)
+        if total_changes > 0:
+            self._cache_misses += 1  # Partial miss
+        else:
+            self._cache_hits += 1  # Complete hit
+        
+        logger.info(
+            f"Differential update complete: "
+            f"Models (+{models_added} -{models_removed} ~{models_changed}), "
+            f"Services (~{services_changed}), "
+            f"Inquiries (+{inquiries_added} -{inquiries_removed} ~{inquiries_changed}), "
+            f"Cache hits: {cache_hits}"
+        )
+
+    def _calculate_inquiry_hashes(self, xml_file_path: str) -> Dict[str, str]:
+        """Calculate hash for each inquiry definition in the XML."""
+        inquiry_hashes = {}
+        
+        if not xml_file_path or not Path(xml_file_path).exists():
+            return inquiry_hashes
+        
+        try:
+            namespaces = {
+                'edmx': 'http://docs.oasis-open.org/odata/ns/edmx', 
+                'edm': 'http://docs.oasis-open.org/odata/ns/edm'
+            }
+            tree = ET.parse(xml_file_path)
+            container = tree.find('.//edm:EntityContainer[@Name="Default"]', namespaces)
+            
+            if container is not None:
+                for entity_set in container.findall('edm:EntitySet', namespaces):
+                    original_name = entity_set.get('Name')
+                    entity_type = entity_set.get('EntityType')
+                    
+                    if original_name and entity_type:
+                        # Get the actual entity type definition for more detailed hashing
+                        entity_type_name = entity_type.split('.', 1)[-1]
+                        entity_type_elem = tree.find(f'.//edm:EntityType[@Name="{entity_type_name}"]', namespaces)
+                        
+                        # Create normalized representation for hashing
+                        normalized_inquiry = {
+                            'name': original_name,
+                            'entity_type': entity_type,
+                            'properties': []
+                        }
+                        
+                        if entity_type_elem is not None:
+                            properties = entity_type_elem.findall('edm:Property', namespaces)
+                            for prop in properties:
+                                prop_info = {
+                                    'name': prop.get('Name'),
+                                    'type': prop.get('Type'),
+                                    'nullable': prop.get('Nullable', 'true')
+                                }
+                                normalized_inquiry['properties'].append(prop_info)
+                            
+                            # Sort properties for consistent hashing
+                            normalized_inquiry['properties'].sort(key=lambda x: x['name'])
+                        
+                        hash_input = json.dumps(normalized_inquiry, sort_keys=True)
+                        inquiry_hashes[original_name] = hashlib.md5(hash_input.encode()).hexdigest()
+                        
+        except Exception as e:
+            logger.warning(f"Error calculating inquiry hashes: {e}")
+        
+        return inquiry_hashes
+
+    def _calculate_inquiries_xml_hash(self, xml_file_path: str) -> str:
+        """Calculate overall hash of the inquiries XML file."""
+        if not xml_file_path or not Path(xml_file_path).exists():
+            return ""
+        
+        try:
+            with open(xml_file_path, 'rb') as f:
+                content = f.read()
+            return hashlib.md5(content).hexdigest()
+        except Exception:
+            return ""
+
+    def _extract_inquiry_definitions(self, xml_file_path: str) -> Dict[str, Any]:
+        """Extract inquiry definitions for caching metadata."""
+        if not xml_file_path or not Path(xml_file_path).exists():
+            return {}
+        
+        inquiry_defs = {}
+        
+        try:
+            namespaces = {
+                'edmx': 'http://docs.oasis-open.org/odata/ns/edmx', 
+                'edm': 'http://docs.oasis-open.org/odata/ns/edm'
+            }
+            tree = ET.parse(xml_file_path)
+            container = tree.find('.//edm:EntityContainer[@Name="Default"]', namespaces)
+            
+            if container is not None:
+                for entity_set in container.findall('edm:EntitySet', namespaces):
+                    original_name = entity_set.get('Name')
+                    entity_type = entity_set.get('EntityType')
+                    
+                    if original_name and entity_type:
+                        inquiry_defs[original_name] = {
+                            'entity_type': entity_type,
+                            'method_name': self._generate_inquiry_method_name(original_name)
+                        }
+                        
+        except Exception as e:
+            logger.warning(f"Error extracting inquiry definitions: {e}")
+        
+        return inquiry_defs
+
+    def _generate_inquiry_method_name(self, inquiry_name: str) -> str:
+        """Generate method name from inquiry name."""
+        import re
+        return re.sub(r"[-\s]+", "_", inquiry_name)
+
+    def _build_inquiries_service(self, xml_file_path: str) -> None:
+        """Build the inquiries service from XML file."""
+        try:
+            # Create the inquiries service if it doesn't exist
+            if "Inquirie" not in self._service_instances:
+                from .core import BaseService
+                service_class = type("InquirieService", (BaseService,), {
+                    "__init__": lambda s, client, entity_name="Inquirie": BaseService.__init__(s, client, entity_name)
+                })
+                inquiries_service = service_class(self)
+                self._service_instances["Inquirie"] = inquiries_service
+                self._available_services.add("Inquirie")
+            else:
+                inquiries_service = self._service_instances["Inquirie"]
+            
+            # Parse XML and add methods
+            namespaces = {
+                'edmx': 'http://docs.oasis-open.org/odata/ns/edmx', 
+                'edm': 'http://docs.oasis-open.org/odata/ns/edm'
+            }
+            tree = ET.parse(xml_file_path)
+            container = tree.find('.//edm:EntityContainer[@Name="Default"]', namespaces)
+
+            if container is not None:
+                # Remove existing inquiry methods
+                self._clear_inquiry_methods(inquiries_service)
+                
+                # Add new inquiry methods
+                for entity_set in container.findall('edm:EntitySet', namespaces):
+                    original_name = entity_set.get('Name')
+                    entity_type = entity_set.get('EntityType')
+                    if not original_name:
+                        continue
+                    
+                    method_name = self._generate_inquiry_method_name(original_name)
+                    self._add_inquiry_method_to_service(
+                        inquiries_service, original_name, method_name, 
+                        entity_type, xml_file_path
+                    )
+                    
+                logger.debug(f"Built inquiries service with methods from {xml_file_path}")
+            
+        except Exception as e:
+            logger.error(f"Could not build inquiries service: {e}")
+
+    def _clear_inquiry_methods(self, service) -> None:
+        """Remove existing inquiry methods from service."""
+        # Get list of methods that look like inquiry methods
+        methods_to_remove = []
+        for attr_name in dir(service):
+            if not attr_name.startswith('_') and callable(getattr(service, attr_name)):
+                # Skip built-in BaseService methods
+                if attr_name not in ['_get', '_put', '_post_action', '_delete', '_get_files', 
+                                   '_get_schema', '_get_inquiry', '_request', '_get_url',
+                                   '_get_by_keys']:
+                    methods_to_remove.append(attr_name)
+        
+        # Remove the methods
+        for method_name in methods_to_remove:
+            try:
+                delattr(service, method_name)
+            except AttributeError:
+                pass
+
+    def _add_inquiry_method_to_service(self, service, inquiry_name: str, method_name: str, 
+                                     entity_type: str, xml_file_path: str) -> None:
+        """Add a single inquiry method to the service."""
+        from functools import update_wrapper
+        from .odata import QueryOptions
+        
+        # Create the method
+        def create_inquiry_method(name_of_inquiry: str):
+            def api_method(self, options: QueryOptions = None):
+                return self._get_inquiry(name_of_inquiry, options=options)
+            return api_method
+
+        # Generate docstring
+        docstring = self._generate_inquiry_docstring(xml_file_path, entity_type, inquiry_name)
+        
+        # Create and attach the method
+        inquiry_method = create_inquiry_method(inquiry_name)
+        inquiry_method.__doc__ = docstring
+        inquiry_method.__name__ = method_name
+        
+        setattr(service, method_name, inquiry_method.__get__(service, service.__class__))
+
+    def _generate_inquiry_docstring(self, xml_file_path: str, entity_type: str, inquiry_name: str) -> str:
+        """Generate docstring for inquiry method."""
+        try:
+            namespaces = {'edm': 'http://docs.oasis-open.org/odata/ns/edm'}
+            tree = ET.parse(xml_file_path)
+            
+            # Get the entity type name without namespace
+            entity_type_name = entity_type.split('.', 1)[-1]
+            entity_type_elem = tree.find(f'.//edm:EntityType[@Name="{entity_type_name}"]', namespaces)
+
+            if entity_type_elem is None:
+                return f"""Generic Inquiry for the '{inquiry_name}' endpoint
+
+        Args:
+            options (QueryOptions, optional): OData query options like $filter, $top, etc.
+
+        Returns:
+            A dictionary containing the API response with inquiry data.
+        """
+
+            # Extract properties
+            properties = [prop.attrib for prop in entity_type_elem.findall('edm:Property', namespaces)]
+
+            if properties:
+                fields_str = "\n".join([
+                    f"        - {prop.get('Name')} ({prop.get('Type', '').split('.', 1)[-1]})"
+                    for prop in properties
+                ])
+            else:
+                fields_str = "        (No properties found for this EntityType)"
+
+            return f"""Generic Inquiry for the '{inquiry_name}' endpoint
+
+        Args:
+            options (QueryOptions, optional): OData query options like $filter, $top, etc.
+
+        Returns:
+            A dictionary containing the API response, typically a list of records with the following fields:
+{fields_str}
+        """
+
+        except Exception as e:
+            return f"""Generic Inquiry for the '{inquiry_name}' endpoint
+
+        Args:
+            options (QueryOptions, optional): OData query options like $filter, $top, etc.
+
+        Returns:
+            A dictionary containing the API response with inquiry data.
+            
+        Note: Error generating field documentation: {e}
+        """
+
+    def _fetch_gi_xml(self) -> str:
+        """Fetch Generic Inquiries XML and return the file path."""
+        metadata_url = f"{self.base_url}/t/{self.tenant}/api/odata/gi/$metadata"
+        logger.debug(f"Fetching inquiries schema from {metadata_url}")
+
+        try:
+            import requests
+            response = requests.get(
+                url=metadata_url,
+                auth=(self.username, self._password)
+            )
+            response.raise_for_status()
+
+            # Save to metadata directory
+            import os
+            package_dir = os.path.dirname(os.path.abspath(__file__))
+            metadata_dir = os.path.join(package_dir, ".metadata")
+            os.makedirs(metadata_dir, exist_ok=True)
+
+            output_path = os.path.join(metadata_dir, "odata_inquiries_schema.xml")
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+
+            logger.debug(f"Inquiries schema saved to {output_path}")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error fetching inquiries metadata: {e}")
+            raise
+
+    # ... [Rest of the existing methods from the previous artifact] ...
+
+    def _calculate_model_hashes(self, schema: Dict[str, Any]) -> Dict[str, str]:
+        """Calculate hash for each model definition in the schema."""
+        model_hashes = {}
+        schemas = schema.get("components", {}).get("schemas", {})
+        
+        primitive_wrappers = {
+            "StringValue", "DecimalValue", "BooleanValue", "DateTimeValue",
+            "GuidValue", "IntValue", "ShortValue", "LongValue", "ByteValue",
+            "DoubleValue"
+        }
+        
+        for name, definition in schemas.items():
+            if name not in primitive_wrappers:
+                # Create a normalized representation for hashing
+                normalized_def = self._normalize_model_definition(definition)
+                hash_input = json.dumps(normalized_def, sort_keys=True)
+                model_hashes[name] = hashlib.md5(hash_input.encode()).hexdigest()
+        
+        return model_hashes
+
+    def _calculate_service_hashes(self, schema: Dict[str, Any]) -> Dict[str, str]:
+        """Calculate hash for each service definition in the schema."""
+        service_hashes = {}
+        paths = schema.get("paths", {})
+        
+        # Group operations by tag (service)
+        services_ops = {}
+        for path, path_info in paths.items():
+            for http_method, details in path_info.items():
+                tag = details.get("tags", [None])[0]
+                if tag:
+                    if tag not in services_ops:
+                        services_ops[tag] = []
+                    services_ops[tag].append((path, http_method, details))
+        
+        for service_name, operations in services_ops.items():
+            # Create normalized representation of all operations for this service
+            normalized_ops = []
+            for path, method, details in operations:
+                normalized_op = {
+                    'path': path,
+                    'method': method,
+                    'operationId': details.get('operationId'),
+                    'parameters': details.get('parameters', []),
+                    'requestBody': self._normalize_request_body(details.get('requestBody')),
+                    'responses': self._normalize_responses(details.get('responses', {}))
+                }
+                normalized_ops.append(normalized_op)
+            
+            # Sort for consistent hashing
+            normalized_ops.sort(key=lambda x: (x['path'], x['method']))
+            hash_input = json.dumps(normalized_ops, sort_keys=True)
+            service_hashes[service_name] = hashlib.md5(hash_input.encode()).hexdigest()
+        
+        return service_hashes
+
+    def _calculate_schema_hash(self, schema: Dict[str, Any]) -> str:
+        """Calculate overall schema hash for quick comparison."""
+        hash_content = {
+            'info': schema.get('info', {}),
+            'servers': schema.get('servers', []),
+            'paths_count': len(schema.get('paths', {})),
+            'schemas_count': len(schema.get('components', {}).get('schemas', {}))
+        }
+        hash_input = json.dumps(hash_content, sort_keys=True)
+        return hashlib.md5(hash_input.encode()).hexdigest()
+
+    def _normalize_model_definition(self, definition: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a model definition for consistent hashing."""
+        normalized = {}
+        
+        for key in ['type', 'required', 'properties', 'allOf', 'description']:
+            if key in definition:
+                if key == 'properties':
+                    normalized[key] = {
+                        prop_name: self._normalize_property_definition(prop_def)
+                        for prop_name, prop_def in definition[key].items()
+                    }
+                else:
+                    normalized[key] = definition[key]
+        
+        return normalized
+
+    def _normalize_property_definition(self, prop_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a property definition for consistent hashing."""
+        normalized = {}
+        
+        for key in ['type', 'format', '$ref', 'items', 'description']:
+            if key in prop_def:
+                normalized[key] = prop_def[key]
+        
+        return normalized
+
+    def _normalize_request_body(self, request_body: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize request body definition for hashing."""
+        if not request_body:
+            return {}
+        
+        normalized = {}
+        if 'content' in request_body:
+            content = request_body['content']
+            if 'application/json' in content:
+                schema = content['application/json'].get('schema', {})
+                if '$ref' in schema:
+                    normalized['schema_ref'] = schema['$ref']
+        
+        return normalized
+
+    def _normalize_responses(self, responses: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize responses definition for hashing."""
+        normalized = {}
+        
+        for status_code, response_def in responses.items():
+            if isinstance(response_def, dict):
+                norm_response = {}
+                if 'content' in response_def:
+                    content = response_def['content']
+                    if 'application/json' in content:
+                        schema = content['application/json'].get('schema', {})
+                        if '$ref' in schema:
+                            norm_response['schema_ref'] = schema['$ref']
+                        elif schema.get('type') == 'array' and 'items' in schema:
+                            if '$ref' in schema['items']:
+                                norm_response['array_items_ref'] = schema['items']['$ref']
+                normalized[status_code] = norm_response
+        
+        return normalized
+
+    def _build_specific_models(self, schema: Dict[str, Any], model_names: List[str]) -> None:
+        """Build only specific models from the schema."""
+        logger.debug(f"Building {len(model_names)} specific models")
+        
+        factory = ModelFactory(schema)
+        
+        for model_name in model_names:
+            try:
+                model_class = factory._get_or_build_model(model_name)
+                setattr(self.models, model_name, model_class)
+                self._model_classes[model_name] = model_class
+                logger.debug(f"Built model: {model_name}")
+            except Exception as e:
+                logger.error(f"Failed to build model {model_name}: {e}")
+
+    def _build_specific_services(self, schema: Dict[str, Any], service_names: Set[str]) -> None:
+        """Build only specific services from the schema."""
+        logger.debug(f"Building {len(service_names)} specific services")
+        
+        factory = ServiceFactory(self, schema)
+        all_services = factory.build_services()
+        
+        for service_name in service_names:
+            if service_name in all_services:
+                service_instance = all_services[service_name]
+                attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+                setattr(self, attr_name, service_instance)
+                self._available_services.add(service_name)
+                self._service_instances[service_name] = service_instance
+                logger.debug(f"Built service: {attr_name}")
+
+    def _restore_services_from_cache(self, cached_data: Dict[str, Any], current_schema: Dict[str, Any]) -> None:
+        """Restore services when they haven't changed."""
+        # Services need to be rebuilt as they contain runtime dependencies
+        self._build_dynamic_services(current_schema)
+
+    def _find_services_dependent_on_models(self, schema: Dict[str, Any], changed_models: Set[str]) -> Set[str]:
+        """Find services that depend on changed models."""
+        dependent_services = set()
+        
+        paths = schema.get("paths", {})
+        for path, path_info in paths.items():
+            for http_method, details in path_info.items():
+                tag = details.get("tags", [None])[0]
+                if tag:
+                    if self._operation_references_models(details, changed_models):
+                        dependent_services.add(tag)
+        
+        return dependent_services
+
+    def _operation_references_models(self, operation_details: Dict[str, Any], model_names: Set[str]) -> bool:
+        """Check if an operation references any of the specified models."""
+        request_body = operation_details.get('requestBody', {})
+        if self._references_models_in_schema(request_body, model_names):
+            return True
+        
+        responses = operation_details.get('responses', {})
+        for response in responses.values():
+            if isinstance(response, dict) and self._references_models_in_schema(response, model_names):
+                return True
+        
+        return False
+
+    def _references_models_in_schema(self, schema_part: Dict[str, Any], model_names: Set[str]) -> bool:
+        """Recursively check if a schema part references any of the specified models."""
+        if not isinstance(schema_part, dict):
+            return False
+        
+        if '$ref' in schema_part:
+            ref_name = schema_part['$ref'].split('/')[-1]
+            if ref_name in model_names:
+                return True
+        
+        for value in schema_part.values():
+            if isinstance(value, dict):
+                if self._references_models_in_schema(value, model_names):
+                    return True
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict) and self._references_models_in_schema(item, model_names):
+                        return True
+        
+        return False
+
+    def _extract_service_definitions(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract service definitions for caching."""
+        return {}
+
+    def _remove_model(self, model_name: str) -> None:
+        """Remove a model from the client."""
+        if hasattr(self.models, model_name):
+            delattr(self.models, model_name)
+        self._model_classes.pop(model_name, None)
+
+    def _remove_service(self, service_name: str) -> None:
+        """Remove a service from the client."""
+        attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+        if hasattr(self, attr_name):
+            delattr(self, attr_name)
+        self._available_services.discard(service_name)
+        self._service_instances.pop(service_name, None)
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get detailed cache statistics."""
+        stats = self.get_performance_stats()
+        
         if self.cache_enabled:
-            self._save_to_cache(cache_file, schema_hash_file, schema)
+            cache_file = self.cache_dir / f"{self._get_cache_key()}.pkl"
+            cache_exists = cache_file.exists()
+            cache_size = cache_file.stat().st_size if cache_exists else 0
+            
+            stats.update({
+                'cache_file_exists': cache_exists,
+                'cache_file_size_bytes': cache_size,
+                'cache_file_path': str(cache_file),
+                'differential_caching': True
+            })
+        
+        return stats
 
     def _get_cache_key(self) -> str:
         """Generate a unique cache key based on connection parameters."""
