@@ -78,6 +78,7 @@ from .exceptions import AcumaticaAuthError, AcumaticaError
 from .helpers import _raise_with_detail
 from .model_factory import ModelFactory
 from .service_factory import ServiceFactory
+from .core import BatchMethodWrapper
 from .utils import RateLimiter, retry_on_error, validate_entity_id
 from .core import BaseDataClassModel, BaseService
 
@@ -1475,6 +1476,10 @@ class AcumaticaClient:
             for name, service_instance in services_dict.items():
                 # Convert PascalCase to snake_case
                 attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_') + 's'
+                
+                # Add batch support to all service methods
+                self._add_batch_support_to_service(service_instance)
+                
                 setattr(self, attr_name, service_instance)
                 self._available_services.add(name)
                 self._service_instances[name] = service_instance
@@ -1484,7 +1489,27 @@ class AcumaticaClient:
             
         except Exception as e:
             raise AcumaticaError(f"Failed to build dynamic services: {e}")
-
+    def _add_batch_support_to_service(self, service_instance) -> None:
+        """
+        Add batch calling support to all public methods of a service instance.
+        
+        Args:
+            service_instance: The service instance to enhance with batch support
+        """
+        # Get all method names that should have batch support
+        method_names = [name for name in dir(service_instance) 
+                    if not name.startswith('_') and 
+                    callable(getattr(service_instance, name, None)) and
+                    name not in ['entity_name', 'endpoint_name']]  # Skip attributes
+        
+        # Wrap each method with batch support
+        for method_name in method_names:
+            original_method = getattr(service_instance, method_name)
+            if callable(original_method):
+                wrapper = BatchMethodWrapper(original_method, service_instance)
+                setattr(service_instance, method_name, wrapper)
+        
+        logger.debug(f"Added batch support to {len(method_names)} methods on {service_instance.entity_name} service")
     # --- Utility Methods ---
 
     def list_models(self) -> List[str]:
@@ -1718,7 +1743,23 @@ Utility Methods:
   client.get_performance_stats()         - Get performance metrics
   client.clear_cache()                   - Clear all caches
   client.help(topic)                     - Get topic-specific help
+
+Batch Calling:
+  from easy_acumatica import BatchCall
   
+  # Execute multiple calls concurrently with tuple unpacking
+  customer, product = BatchCall(
+      client.customers.get_by_id.batch("CUST001"),
+      client.products.get_by_id.batch("PROD001")
+  ).execute()
+  
+  # All service methods have .batch property for deferred execution
+  batch = BatchCall(client.service.method.batch(args))
+  
+  # Helper functions available:
+  create_batch_from_ids(service, ids)     - Batch fetch by IDs
+  create_batch_from_filters(service, filters) - Batch with filters
+
 Performance:
   Startup time: {self._startup_time:.2f}s
   Cache: {'enabled' if self.cache_enabled else 'disabled'}
@@ -1762,7 +1803,65 @@ Search and Discovery:
   client.search_models('contact')        - Find models containing 'contact'
   client.get_model_info('Contact')       - Detailed model info
             """)
-            
+        elif topic.lower() == 'batch':
+            print(f"""
+Batch Calling Help
+==================
+
+Execute multiple API calls concurrently for better performance.
+
+Basic Usage:
+  customer, product, contact = BatchCall(
+      client.customers.get_by_id.batch("CUST001"),
+      client.products.get_by_id.batch("PROD001"),
+      client.contacts.get_by_id.batch("CONT001")
+  ).execute()
+
+Service Method Integration:
+  Every service method has a .batch property:
+  - client.customers.get_by_id.batch("ID")
+  - client.products.get_list.batch(options=query)
+  - client.invoices.put_entity.batch(invoice_data)
+
+Advanced Options:
+  BatchCall(
+      *calls,
+      max_concurrent=5,              # Concurrent threads
+      timeout=30,                 # Total timeout
+      fail_fast=False,            # Stop on first error
+      return_exceptions=True,     # Return errors as results
+      progress_callback=func      # Progress tracking
+  )
+
+Helper Functions:
+  # Batch fetch multiple entities by ID
+  customers = create_batch_from_ids(
+      client.customers, 
+      ["CUST001", "CUST002", "CUST003"]
+  ).execute()
+  
+  # Batch with different filters
+  results = create_batch_from_filters(
+      client.customers,
+      [QueryOptions(filter=F.Status == "Active"),
+       QueryOptions(filter=F.Status == "Inactive")]
+  ).execute()
+
+Performance Benefits:
+  - Concurrent execution reduces total time
+  - Built-in error handling and retry
+  - Progress tracking and statistics
+  - Thread-safe operations
+
+Error Handling:
+  batch = BatchCall(*calls, return_exceptions=True)
+  results = batch.execute()
+  
+  # Check for errors
+  successful_results = batch.get_successful_results()
+  failed_calls = batch.get_failed_calls()
+  batch.print_summary()
+        """) 
         elif topic.lower() == 'services':
             print(f"""
 Services Help
@@ -1866,7 +1965,7 @@ Monitoring:
             """)
         else:
             print(f"Unknown help topic: {topic}")
-            print("Available topics: models, services, cache, performance")
+            print("Available topics: models, services, cache, performance, batch")  # Add 'batch' here
 
     @retry_on_error(max_attempts=3, delay=1.0, backoff=2.0)
     def login(self) -> int:

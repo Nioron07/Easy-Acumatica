@@ -11,6 +11,7 @@ from .odata import QueryOptions
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
+    from .batch import CallableWrapper
 
 class BaseDataClassModel:
     """
@@ -50,10 +51,64 @@ class BaseDataClassModel:
         return self.to_acumatica_payload()
 
 
+class BatchMethodWrapper:
+    """
+    Wrapper that adds batch calling capability to service methods.
+    
+    This allows methods to be called normally or used in batch operations
+    by accessing the .batch property.
+    """
+    
+    def __init__(self, method, service_instance):
+        self.method = method
+        self.service_instance = service_instance
+        self.__name__ = method.__name__
+        self.__doc__ = method.__doc__
+    
+    def __call__(self, *args, **kwargs):
+        """Normal method call - execute immediately."""
+        return self.method(*args, **kwargs)
+    
+    def batch(self, *args, **kwargs) -> 'CallableWrapper':
+        """Create a CallableWrapper for batch execution."""
+        from .batch import CallableWrapper
+        return CallableWrapper(self.method, *args, **kwargs)
+    
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        # Return a bound version of this wrapper
+        bound_method = self.method.__get__(instance, owner)
+        return BatchMethodWrapper(bound_method, instance)
+
+
+def add_batch_support(service_class):
+    """
+    Class decorator to add batch calling support to all public methods of a service.
+    """
+    # Get all method names that should have batch support
+    method_names = [name for name in dir(service_class) 
+                   if not name.startswith('_') and 
+                   callable(getattr(service_class, name, None)) and
+                   name not in ['entity_name', 'endpoint_name']]  # Skip attributes
+    
+    # Wrap each method
+    for method_name in method_names:
+        original_method = getattr(service_class, method_name)
+        if callable(original_method):
+            wrapper = BatchMethodWrapper(original_method, None)
+            setattr(service_class, method_name, wrapper)
+    
+    return service_class
+
+
+@add_batch_support
 class BaseService:
     """
     A base service that handles common API request logic, including
     authentication, URL construction, and response handling.
+    
+    All public methods automatically support batch calling via the .batch property.
     """
     def __init__(self, client: AcumaticaClient, entity_name: str, endpoint_name: str = "Default"):
         self._client = client
@@ -117,6 +172,7 @@ class BaseService:
         params = options.to_params() if options else None
 
         return self._request("get", url, params=params)
+    
     def _get_by_keys(
         self,
         key_fields: Dict[str, Any],
@@ -146,6 +202,7 @@ class BaseService:
         
         params = options.to_params() if options else None
         return self._request("get", url, params=params)
+    
     def _put(
         self,
         data: Any,
