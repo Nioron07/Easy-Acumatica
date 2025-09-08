@@ -214,23 +214,6 @@ options = QueryOptions(
 results = client.customers.get_list(options=options)
 ```
 
-## 📈 Performance Benefits
-
-The caching system provides significant performance improvements:
-
-| Scenario | Without Cache | With Cache | Improvement |
-|----------|---------------|------------|-------------|
-| Small API (50 models) | 3-5 seconds | 0.5-1 second | 5-10x faster |
-| Medium API (200 models) | 8-12 seconds | 1-2 seconds | 6-8x faster |
-| Large API (500+ models) | 20-30 seconds | 2-4 seconds | 8-12x faster |
-
-### Cache Behavior
-
-- **Smart Invalidation**: Automatically detects when the API schema changes
-- **TTL-Based**: Configurable time-to-live prevents stale data
-- **Selective Caching**: Only caches generated models and services, not API responses
-- **Cross-Session**: Cache persists between Python sessions
-
 ## 🛠️ Advanced Configuration
 
 ### Using Configuration Files
