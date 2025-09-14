@@ -60,7 +60,7 @@ class TestClientBasicFeatures:
         assert client.endpoint_version == OLD_DEFAULT_VERSION
 
         # Test API call with specified version
-        result = client.tests.get_by_id("223")  # Different ID for old version
+        result = client.tests.get_by_id("223") 
         assert result["id"] == "223"
         assert result["Name"]["value"] == "Old Specific Test Item"
 

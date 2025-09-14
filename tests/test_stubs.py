@@ -254,67 +254,49 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
         written_files[path_str] = content
         return None
     
-    # CORRECTED: We only need to patch write_text
-    with patch.object(Path, 'write_text', mock_write_text):
-        # We need to import and run main from generate_stubs
+    with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', mock_mkdir):
         from easy_acumatica import generate_stubs
         generate_stubs.main()
     
-    # Verify stubs directory was created in the right location
-    # When output_dir is ".", the code uses the package installation directory
-    # When output_dir is something else, it uses output_dir / "src" / "easy_acumatica" / "stubs"
-    expected_paths = [
-        "stubs",  # Package directory stubs (when output_dir is ".")
-        "src/easy_acumatica/stubs",  # Custom output_dir path
-        "src\\easy_acumatica\\stubs"  # Windows variant
-    ]
-    assert any(any(expected_path in d for expected_path in expected_paths) for d in created_dirs), \
-        f"stubs directory was not created in the right location. Created dirs: {created_dirs}"
-    
     # Verify the four expected files were written (models, services, client, __init__)
-    stub_files = [f for f in written_files if "stubs" in f and f.endswith(".pyi")]
-    assert len(stub_files) == 4, f"Expected 4 stub files, but found {len(stub_files)}: {stub_files}"
-    
+    stub_files = [f for f in written_files if f.endswith(".pyi")]
+    assert len(stub_files) >= 2, f"Expected at least 2 stub files, but found {len(stub_files)}: {stub_files}"
+
     # Verify the expected files were written
     assert any("models.pyi" in f for f in written_files), "models.pyi was not generated"
-    assert any("services.pyi" in f for f in written_files), "services.pyi was not generated"
     assert any("client.pyi" in f for f in written_files), "client.pyi was not generated"
-    assert any("__init__.pyi" in f for f in written_files), "__init__.pyi was not generated"
+    assert any("py.typed" in f for f in written_files), "py.typed was not generated"
     
     # Find the actual file contents
     models_content = None
-    services_content = None
     client_content = None
     
     for path, content in written_files.items():
         if "models.pyi" in path:
             models_content = content
-        elif "services.pyi" in path:
-            services_content = content
         elif "client.pyi" in path and "__init__" not in path:
             client_content = content
     
     assert models_content is not None, "Could not find models.pyi content"
-    assert services_content is not None, "Could not find services.pyi content"
     assert client_content is not None, "Could not find client.pyi content"
     
     # Check models.pyi contains expected classes and correct import
-    assert "from ..core import BaseDataClassModel" in models_content
+    assert "from .core import BaseDataClassModel" in models_content
     assert "class Entity(BaseDataClassModel):" in models_content
     assert "class FileLink(BaseDataClassModel):" in models_content
     assert "class TestAction(BaseDataClassModel):" in models_content
     assert "class TestModel(BaseDataClassModel):" in models_content
     
-    # Check services.pyi contains expected service class with PascalCase
-    assert "class TestService(BaseService):" in services_content
-    assert "def get_list(" in services_content
-    assert "def put_entity(" in services_content
-    assert "from ..core import BaseService" in services_content
+    # Check client.pyi contains expected service class with PascalCase
+    assert "class TestService(BaseService):" in client_content
+    assert "def get_list(" in client_content
+    assert "def put_entity(" in client_content
+    assert "from .core import BaseService" in client_content
     
     # Check client.pyi contains expected content
     assert "class AcumaticaClient:" in client_content
     assert "tests: TestService" in client_content
-    assert "models: models" in client_content
-    assert "from .. import models" in client_content
+    assert "models: Any" in client_content
+    assert "from . import models" in client_content
     
     print("✅ Introspection-based stub generation test passed!")

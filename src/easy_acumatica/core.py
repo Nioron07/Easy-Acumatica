@@ -11,7 +11,6 @@ from .odata import QueryOptions
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
-    from .batch import CallableWrapper
 
 class BaseDataClassModel:
     """
@@ -62,17 +61,20 @@ class BatchMethodWrapper:
     def __init__(self, method, service_instance):
         self.method = method
         self.service_instance = service_instance
-        self.__name__ = method.__name__
-        self.__doc__ = method.__doc__
+        self.__name__ = getattr(method, '__name__', 'unknown')
+        self.__doc__ = getattr(method, '__doc__', None)
     
     def __call__(self, *args, **kwargs):
         """Normal method call - execute immediately."""
         return self.method(*args, **kwargs)
     
-    def batch(self, *args, **kwargs) -> 'CallableWrapper':
-        """Create a CallableWrapper for batch execution."""
-        from .batch import CallableWrapper
-        return CallableWrapper(self.method, *args, **kwargs)
+    @property
+    def batch(self):
+        """Return a callable that creates a CallableWrapper for batch execution."""
+        def create_wrapper(*args, **kwargs):
+            from .batch import CallableWrapper
+            return CallableWrapper(self.method, *args, **kwargs)
+        return create_wrapper
     
     def __get__(self, instance, owner):
         if instance is None:
@@ -117,10 +119,11 @@ class BaseService:
 
     def _get_url(self, api_version: Optional[str] = None) -> str:
         """Constructs the base URL for the service's entity."""
-        version = api_version or self._client.endpoints[self.endpoint_name]['version']
+        version = api_version or self._client.endpoint_version or self._client.endpoints[self.endpoint_name]['version']
         if not version:
             raise ValueError(f"API version for endpoint '{self.endpoint_name}' is not available.")
         return f"{self._client.base_url}/entity/{self.endpoint_name}/{version}/{self.entity_name}"
+
 
     def _get_schema(self, api_version: Optional[str] = None) -> Any:
         """

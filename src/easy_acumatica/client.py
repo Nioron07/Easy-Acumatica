@@ -60,8 +60,6 @@ import logging
 import os
 import pickle
 import time
-import warnings
-from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
@@ -74,7 +72,7 @@ from urllib3.util.retry import Retry
 
 from . import models
 from .config import AcumaticaConfig
-from .exceptions import AcumaticaAuthError, AcumaticaError
+from .exceptions import AcumaticaAuthError, AcumaticaError, AcumaticaConnectionError
 from .helpers import _raise_with_detail
 from .model_factory import ModelFactory
 from .service_factory import ServiceFactory
@@ -527,13 +525,16 @@ class AcumaticaClient:
         
         try:
             logger.debug(f"Fetching endpoint information from {url}")
-            endpoint_data = self._request("get", url).json()
+            response = self._request("get", url)
+            endpoint_data = response.json()
         except requests.RequestException as e:
-            raise AcumaticaError(f"Failed to fetch endpoint information: {e}")
-        
+            raise AcumaticaConnectionError(f"Failed to fetch endpoint information: {e}")
+        except json.JSONDecodeError:
+            raise AcumaticaConnectionError("Failed to decode endpoint JSON. The URL may be incorrect or the server may be down.")
+
         endpoints = endpoint_data.get('endpoints', [])
         if not endpoints:
-            raise AcumaticaError("No endpoints found on the server")
+            raise AcumaticaConnectionError("No endpoints found on the server. Please check the base_url.")
         
         # Store endpoint information
         for endpoint in endpoints:
@@ -669,7 +670,9 @@ class AcumaticaClient:
                 return None
                 
             return cached_data
-            
+        except requests.exceptions.ConnectionError:
+            logger.warning("Network error during cache validation, using stale cache.")
+            return cached_data
         except Exception as e:
             logger.debug(f"Failed to load cache: {e}")
             return None

@@ -12,9 +12,12 @@ from easy_acumatica.exceptions import AcumaticaError, AcumaticaAuthError, Acumat
 class TestErrorHandling:
     """Test error handling in various scenarios."""
 
-    def test_connection_error(self):
-        """Test handling of connection errors."""
-        # CORRECTED: The client initialization should raise a ConnectionError subtype
+    @patch('easy_acumatica.client.requests.Session.get')
+    def test_connection_error(self, mock_get):
+        """Test handling of connection errors by mocking a request exception."""
+        # Configure the mock to raise a ConnectionError, which is a subclass of RequestException
+        mock_get.side_effect = requests.exceptions.ConnectionError("Failed to establish a new connection")
+
         with pytest.raises(AcumaticaConnectionError):
             AcumaticaClient(
                 base_url="https://invalid-url-that-does-not-exist.com",

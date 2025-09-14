@@ -1,11 +1,4 @@
-"""easy_acumatica.exceptions
-========================
-
-Custom exception classes for Easy Acumatica.
-
-Provides a hierarchy of exceptions for different error scenarios,
-making it easier to handle specific error cases in client code.
-"""
+# easy_acumatica.exceptions
 
 from typing import Any, Dict, Optional
 

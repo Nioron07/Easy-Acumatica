@@ -441,6 +441,7 @@ def main():
         tenant=args.tenant,
         endpoint_name=args.endpoint_name,
         endpoint_version=args.endpoint_version,
+        cache_methods=False, # Explicitly disable caching for stub generation
     )
     
     print("✅ Successfully connected and initialized client")
@@ -462,24 +463,6 @@ def main():
     print("\n" + "="*60)
     print("STUB GENERATION COMPLETE!")
     print("="*60)
-    
-    if args.mode in ["inline", "both"]:
-        print("\n📝 INLINE STUBS (Recommended):")
-        print("✅ Generated PEP 561 compliant stub files")
-        print("✅ Added py.typed marker file")
-        print("✅ Stubs will be automatically discovered by:")
-        print("   - VSCode with Pylance")
-        print("   - mypy")
-        print("   - PyCharm")
-        print("   - Other PEP 561 compliant type checkers")
-        print("\n🔄 No action needed - restart your IDE and enjoy type hints!")
-    
-    if args.mode in ["external", "both"]:
-        print(f"\n📦 EXTERNAL STUB PACKAGE:")
-        print(f"✅ Generated installable stub package in {output_dir}")
-        print("📋 To use:")
-        print(f"   cd {output_dir}")
-        print("   pip install -e .")
 
 
 if __name__ == "__main__":

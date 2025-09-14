@@ -4,10 +4,10 @@ to achieve optimal performance by avoiding serialization bottlenecks."""
 import concurrent.futures
 import logging
 import time
-from .client import AcumaticaClient
 import requests
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from .exceptions import AcumaticaError
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -39,24 +39,11 @@ class CallableWrapper:
         self.func = func
         self.args = args
         self.kwargs = kwargs
-        self.description = self._generate_description()
-    
-    def _generate_description(self) -> str:
-        """Generate a human-readable description of this call."""
-        func_name = getattr(self.func, '__name__', str(self.func))
-        
-        if hasattr(self.func, '__self__'):
-            service_name = getattr(self.func.__self__, 'entity_name', 'Unknown')
-            return f"{service_name}.{func_name}"
-        
-        return func_name
+        self.method_name = getattr(func, '__name__', 'unknown')  # Add method_name attribute
     
     def execute(self) -> Any:
         """Execute the wrapped function call synchronously."""
         return self.func(*self.args, **self.kwargs)
-    
-    def __repr__(self) -> str:
-        return f"CallableWrapper({self.description})"
 
 class BatchCall:
     """
@@ -128,6 +115,8 @@ class BatchCall:
         
         logger.info(f"Starting separate HTTP session batch execution with {len(self.calls)} calls, max concurrent: {self.max_concurrent}")
         
+        first_error = None
+        
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent) as executor:
                 # Submit all tasks with separate session execution
@@ -137,19 +126,33 @@ class BatchCall:
                 }
                 
                 # Wait for completion with optional timeout
-                completed_futures = concurrent.futures.as_completed(
-                    future_to_index.keys(), 
-                    timeout=self.timeout
-                )
+                try:
+                    completed_futures = concurrent.futures.as_completed(
+                        future_to_index.keys(), 
+                        timeout=self.timeout
+                    )
+                except concurrent.futures.TimeoutError:
+                    logger.error(f"Batch execution timed out after {self.timeout} seconds")
+                    raise
                 
                 completed_count = 0
-                first_error = None
                 
                 for future in completed_futures:
                     index = future_to_index[future]
-                    result = future.result()  # This will re-raise any exception
+                    try:
+                        result = future.result()  # This will re-raise any exception from the thread
+                        self.results[index] = result
+                    except Exception as e:
+                        # Create an error result
+                        self.results[index] = BatchCallResult(
+                            success=False,
+                            error=e,
+                            execution_time=0.0,
+                            call_index=index
+                        )
+                        if self.fail_fast and first_error is None:
+                            first_error = e
                     
-                    self.results[index] = result
                     completed_count += 1
                     
                     # Progress callback
@@ -160,19 +163,18 @@ class BatchCall:
                             logger.warning(f"Progress callback failed: {e}")
                     
                     # Handle fail_fast
-                    if self.fail_fast and not result.success and first_error is None:
-                        first_error = result.error
-                        # Cancel remaining futures
-                        for remaining_future in future_to_index.keys():
-                            remaining_future.cancel()
-                        break
+                    if self.fail_fast and first_error:
+                        # CORRECTED: Re-raise the original AcumaticaError
+                        if isinstance(first_error, AcumaticaError):
+                            raise first_error
+                        raise AcumaticaError(f"Batch execution failed (fail_fast=True): {first_error}")
+
                 
-        except concurrent.futures.TimeoutError:
-            logger.error(f"Batch execution timed out after {self.timeout} seconds")
-            raise
         except Exception as e:
             logger.error(f"Batch execution failed: {e}")
-            raise
+            if not self.return_exceptions:
+                raise
+            # If return_exceptions is True, we continue to process results
         
         # Calculate statistics
         total_time = time.time() - start_time
@@ -200,8 +202,7 @@ class BatchCall:
         
         # Handle fail_fast
         if self.fail_fast and first_error:
-            from .exceptions import AcumaticaError
-            raise AcumaticaError(f"Batch execution failed (fail_fast=True): {first_error}")
+            raise Exception(f"Batch execution failed (fail_fast=True): {first_error}")
         
         return self.get_results_tuple()
     
@@ -226,9 +227,18 @@ class BatchCall:
                 # Get the original client from the call
                 original_client = self._get_original_client_from_call(call)
                 if not original_client:
-                    raise RuntimeError(f"Could not extract client from call: {call.description}")
+                    # If we can't get the client, just execute the call directly
+                    # This handles lambda functions and other non-service calls
+                    result = call.execute()
+                    execution_time = time.time() - start_time
+                    return BatchCallResult(
+                        success=True,
+                        result=result,
+                        execution_time=execution_time,
+                        call_index=index
+                    )
                 
-                logger.debug(f"Creating separate session for call {index} (attempt {attempt + 1}): {call.description}")
+                logger.debug(f"Creating separate session for call {index} (attempt {attempt + 1})")
                 
                 # Create a completely separate HTTP session 
                 if temp_session:
@@ -243,7 +253,6 @@ class BatchCall:
                 self._authenticate_session(temp_session, original_client, index)
                 
                 # Execute the call using the authenticated temp session
-                # We do this by creating a minimal execution context that uses the temp session
                 result = self._execute_call_with_session(call, temp_session, original_client)
                 
                 # Logout the temporary session 
@@ -277,12 +286,8 @@ class BatchCall:
                     continue
                 
                 logger.debug(f"Call {index} failed after {execution_time:.3f}s with separate session (attempt {attempt + 1}): {e}")
-                return BatchCallResult(
-                    success=False,
-                    error=e,
-                    execution_time=execution_time,
-                    call_index=index
-                )
+                raise e
+
         
         # Final cleanup after all attempts
         try:
@@ -301,7 +306,7 @@ class BatchCall:
             call_index=index
         )
 
-    def _authenticate_session(self, session: 'requests.Session', original_client: 'AcumaticaClient', index: int) -> None:
+    def _authenticate_session(self, session: 'requests.Session', original_client: Any, index: int) -> None:
         """Authenticate a session independently without touching the main client."""
         url = f"{original_client.base_url}/entity/auth/login"
         
@@ -315,8 +320,7 @@ class BatchCall:
                 )
                 
                 if response.status_code == 401:
-                    from .exceptions import AcumaticaAuthError
-                    raise AcumaticaAuthError("Invalid credentials")
+                    raise Exception("Invalid credentials")
                 
                 response.raise_for_status()
                 logger.debug(f"Session authentication successful for call {index}")
@@ -329,7 +333,7 @@ class BatchCall:
                 else:
                     raise login_error
 
-    def _logout_session(self, session: 'requests.Session', original_client: 'AcumaticaClient') -> None:
+    def _logout_session(self, session: 'requests.Session', original_client: Any) -> None:
         """Logout a session independently."""
         try:
             url = f"{original_client.base_url}/entity/auth/logout"
@@ -338,7 +342,7 @@ class BatchCall:
         except Exception as e:
             logger.debug(f"Non-critical logout error: {e}")
 
-    def _execute_call_with_session(self, call: CallableWrapper, session: 'requests.Session', original_client: 'AcumaticaClient') -> Any:
+    def _execute_call_with_session(self, call: CallableWrapper, session: 'requests.Session', original_client: Any) -> Any:
         """Execute a call using a specific session without modifying the main client."""
         # We need to temporarily replace the session for the duration of the call only
         original_session = original_client.session
@@ -358,7 +362,7 @@ class BatchCall:
             original_client.session = original_session
             original_client._logged_in = original_logged_in
     
-    def _get_original_client_from_call(self, call: CallableWrapper) -> 'AcumaticaClient':
+    def _get_original_client_from_call(self, call: CallableWrapper) -> Any:
         """
         Extract the original AcumaticaClient from the callable wrapper.
         
@@ -366,7 +370,7 @@ class BatchCall:
             call: The CallableWrapper to extract client from
             
         Returns:
-            Original AcumaticaClient instance
+            Original AcumaticaClient instance or None
         """
         # Try to get the client from the function's __self__ attribute (bound method)
         if hasattr(call.func, '__self__'):
@@ -376,7 +380,7 @@ class BatchCall:
         
         return None
     
-    def _create_separate_http_session(self, original_client: 'AcumaticaClient') -> 'requests.Session':
+    def _create_separate_http_session(self, original_client: Any) -> 'requests.Session':
         """
         Create a separate HTTP session with the same configuration as the original.
         
@@ -434,9 +438,8 @@ class BatchCall:
                 if self.return_exceptions:
                     results.append(batch_result.error)
                 else:
-                    from .exceptions import AcumaticaError
-                    raise AcumaticaError(
-                        f"Call {i} ({self.calls[i].description}) failed: {batch_result.error}"
+                    raise Exception(
+                        f"Call {i} failed: {batch_result.error}"
                     )
         
         return tuple(results)
@@ -502,7 +505,7 @@ class BatchCall:
         if failed_calls:
             print(f"\nFailed Calls:")
             for index, call, error in failed_calls:
-                print(f"  {index}: {call.description} - {type(error).__name__}: {error}")
+                print(f"  {index}: - {type(error).__name__}: {error}")
     
     def __len__(self) -> int:
         """Return the number of calls in this batch."""
