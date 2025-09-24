@@ -6,6 +6,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+import requests
 from unittest.mock import patch, mock_open
 
 import pytest
@@ -942,3 +943,69 @@ class TestNewStatisticsFeatures:
         assert stats_after['total_errors'] == 0
         assert len(stats_after['requests_by_method']) == 0
         assert len(stats_after['requests_by_endpoint']) == 0
+
+class TestCustomEndpoints:
+    def test_client_respects_custom_endpoint_for_entities(self, live_server_url, reset_server_state):
+        """
+        Validates that a custom 'endpoint_name' in the client configuration is
+        used for standard entity API calls, resolving the original bug.
+        """
+        # ARRANGE: Initialize the client with a non-default endpoint name
+        client = AcumaticaClient(
+            base_url=live_server_url,
+            username="test_user",
+            password="test_password",
+            tenant="test_tenant",
+            endpoint_name="Custom",  # Use the custom endpoint defined in the mock server
+            cache_methods=False
+        )
+
+        # ASSERT INITIAL STATE: Check if the client is configured as expected
+        assert client.endpoint_name == "Custom"
+        assert "Custom" in client.endpoints
+        assert client.endpoint_version is not None, "Client should auto-detect the version for the custom endpoint."
+
+        # ACT: Call a service method. The mock server is configured to return a
+        # unique response only for requests sent to the '/entity/Custom/...' URL.
+        result = client.tests.get_by_id("CUST-01")
+
+        # ASSERT RESULT: Verify that we received the unique response from the custom endpoint,
+        # proving the request was routed correctly.
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result.get("source") == "Custom Endpoint", "Response should originate from the custom endpoint."
+        assert result.get("id") == "CUST-01"
+
+        print("\\n Client correctly routed a standard entity request to the custom endpoint.")
+        client.close()
+
+    def test_client_respects_custom_endpoint_for_inquiries(self, live_server_url, reset_server_state):
+            """
+            Validates that a custom 'endpoint_name' is also correctly used for
+            Generic Inquiry calls.
+            """
+            # ARRANGE: Tell the mock server to use the XML schema that includes "Vendor_List"
+            requests.post(f"{live_server_url}/test/xml/version", json={"version": "v2"})
+
+            # ARRANGE: Initialize the client with the custom endpoint
+            client = AcumaticaClient(
+                base_url=live_server_url,
+                username="test_user",
+                password="test_password",
+                tenant="test_tenant",
+                endpoint_name="Custom",
+                cache_methods=False
+            )
+
+            # ACT: Call a generic inquiry.
+            result = client.inquiries.Vendor_List()
+
+            # ASSERT: Check for the unique response from the custom inquiry endpoint.
+            assert result is not None
+            assert isinstance(result, dict)
+            assert result.get("source") == "Custom Inquiry Endpoint"
+            assert len(result.get("value", [])) == 1
+            assert result["value"][0]["VendorID"]["value"] == "V-CUSTOM-01"
+
+            print("\n Client correctly routed a Generic Inquiry request to the custom endpoint.")
+            client.close()

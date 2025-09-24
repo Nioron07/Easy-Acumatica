@@ -186,18 +186,18 @@ class ServiceFactory:
 
         for tag, operations in tags_to_ops.items():
             service_class = type(f"{tag}Service", (BaseService,), {
-                "__init__": lambda s, client, entity_name=tag, endpoint_name=self._client.endpoint_name: BaseService.__init__(s, client, entity_name, endpoint_name)
+                "__init__": lambda s, client, entity_name=tag, endpoint_name=None: BaseService.__init__(s, client, entity_name, endpoint_name)
             })
-            service_instance = service_class(self._client)
+            service_instance = service_class(self._client, entity_name=tag, endpoint_name=self._client.endpoint_name)
             for path, http_method, details in operations:
                 self._add_method_to_service(service_instance, path, http_method, details)
             services[tag] = service_instance
 
         tag = "Inquiries"
         service_class = type(f"{tag}Service", (BaseService,), {
-            "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
+            "__init__": lambda s, client, entity_name=tag, endpoint_name=None: BaseService.__init__(s, client, entity_name, endpoint_name)
         })
-        inquiries_service = service_class(self._client)
+        inquiries_service = service_class(self._client, entity_name=tag, endpoint_name=self._client.endpoint_name)
         services[tag] = inquiries_service
 
         # Now populate it using the refactored loop

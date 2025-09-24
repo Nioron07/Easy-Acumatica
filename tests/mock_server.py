@@ -13,6 +13,7 @@ except ImportError:
 
 app = Flask(__name__)
 LATEST_DEFAULT_VERSION = "24.200.001"
+CUSTOM_ENDPOINT_VERSION = "24.200.001"
 OLD_DEFAULT_VERSION = "23.200.001"
 TEST_ENDPOINT_NAME = "Default"
 
@@ -52,6 +53,7 @@ def get_endpoints():
             {"name": TEST_ENDPOINT_NAME, "version": OLD_DEFAULT_VERSION}, 
             {"name": "MANUFACTURING", "version": "24.200.001"},
             {"name": TEST_ENDPOINT_NAME, "version": LATEST_DEFAULT_VERSION}, 
+            {"name": "Custom", "version": CUSTOM_ENDPOINT_VERSION},  # New custom endpoint
         ]
     }), 200
 
@@ -83,13 +85,13 @@ def get_versions():
 
 # --- Swagger endpoints with version support ---
 
-@app.route(f'/entity/{TEST_ENDPOINT_NAME}/<version>/swagger.json', methods=['GET'])
-def get_swagger(version: str):
+@app.route('/entity/<endpoint_name>/<version>/swagger.json', methods=['GET'])
+def get_swagger(endpoint_name: str, version: str):
     """
     Serves the mock swagger.json with support for different schema versions
-    to test differential caching.
+    to test differential caching. This now accepts a variable endpoint_name.
     """
-    print(f"Swagger requested for version: {version}, schema version: {_schema_version}")
+    print(f"Swagger requested for endpoint '{endpoint_name}', version: {version}, schema version: {_schema_version}")
     
     if _schema_version == "v2":
         return jsonify(get_modified_swagger_json()), 200
@@ -337,6 +339,16 @@ def get_file(file_id: str):
 @app.route('/t/<tenant>/api/odata/gi/<inquiry_name>', methods=['GET'])
 def get_inquiry(tenant: str, inquiry_name: str):
     """Simulates a generic inquiry request with different data based on XML version."""
+
+    # SPECIAL CASE: Add a unique response for the custom endpoint test
+    if inquiry_name == "Vendor List":
+        return jsonify({
+            "source": "Custom Inquiry Endpoint",
+            "value": [
+                {"VendorID": {"value": "V-CUSTOM-01"}, "VendorName": {"value": "Custom Supplier Inc."}}
+            ]
+        }), 200
+
     base_data = {
         "Account Details": {
             "value": [
@@ -357,15 +369,6 @@ def get_inquiry(tenant: str, inquiry_name: str):
             ]
         }
     }
-    
-    # Add extra data for v2 XML version
-    if _xml_version == "v2":
-        base_data["Vendor List"] = {
-            "value": [
-                {"VendorID": {"value": "V001"}, "VendorName": {"value": "Supplier A"}, "City": {"value": "Boston"}},
-                {"VendorID": {"value": "V002"}, "VendorName": {"value": "Supplier B"}, "City": {"value": "Seattle"}},
-            ]
-        }
     
     if inquiry_name in base_data:
         return jsonify(base_data[inquiry_name]), 200
@@ -393,3 +396,15 @@ def reset_cache_test_state():
     _schema_version = "v1"
     _xml_version = "v1"
     return jsonify({"message": "Test state reset"}), 200
+
+# --- Custom Endpoint Entity Paths ---
+CUSTOM_ENTITY_PATH = f"/entity/Custom/{CUSTOM_ENDPOINT_VERSION}/Test"
+
+@app.route(f'{CUSTOM_ENTITY_PATH}/<entity_id>', methods=['GET'])
+def get_by_id_custom(entity_id: str):
+    """Handles get_by_id for the custom endpoint with a unique response."""
+    return jsonify({
+        "id": entity_id,
+        "Name": {"value": "Custom Specific Item"},
+        "source": "Custom Endpoint"
+    }), 200
