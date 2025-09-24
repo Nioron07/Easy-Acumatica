@@ -116,10 +116,10 @@ class BaseService:
     
     All public methods automatically support batch calling via the .batch property.
     """
-    def __init__(self, client: AcumaticaClient, entity_name: str, endpoint_name: str = "Default"):
+    def __init__(self, client: AcumaticaClient, entity_name: str, endpoint_name: str):
         self._client = client
         self.entity_name = entity_name
-        self.endpoint_name = endpoint_name
+        self.endpoint_name = endpoint_name if endpoint_name else client.endpoint_name
 
     def _get_url(self, api_version: Optional[str] = None) -> str:
         """Constructs the base URL for the service's entity."""

@@ -186,7 +186,7 @@ class ServiceFactory:
 
         for tag, operations in tags_to_ops.items():
             service_class = type(f"{tag}Service", (BaseService,), {
-                "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
+                "__init__": lambda s, client, entity_name=tag, endpoint_name=self._client.endpoint_name: BaseService.__init__(s, client, entity_name, endpoint_name)
             })
             service_instance = service_class(self._client)
             for path, http_method, details in operations:
