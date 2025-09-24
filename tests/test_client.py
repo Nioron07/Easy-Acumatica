@@ -96,8 +96,8 @@ class TestClientBasicFeatures:
             cache_methods=False
         )
 
-        assert "Inquirie" in client._service_instances
-        inquiries_service = client._service_instances["Inquirie"]
+        assert "Inquiries" in client._service_instances
+        inquiries_service = client._service_instances["Inquiries"]
 
         expected_inquiries = [
             'Account_Details', 'Customer_List', 'Inventory_Items',
@@ -705,3 +705,240 @@ class TestCacheIntegration:
         assert stats['cache_enabled'] is True
         assert len(client.list_models()) > 0
         client.close()
+
+
+class TestNewStatisticsFeatures:
+    """Test all new statistics and debugging features added to AcumaticaClient."""
+
+    @pytest.fixture
+    def client(self, live_server_url, reset_server_state):
+        """Provide a client instance for testing."""
+        client = AcumaticaClient(
+            base_url=live_server_url,
+            username="test_user",
+            password="test_password",
+            tenant="test_tenant",
+            cache_methods=False
+        )
+        yield client
+        client.close()
+
+    def test_get_connection_stats(self, client):
+        """Test get_connection_stats method returns proper metrics."""
+        stats = client.get_connection_stats()
+
+        # Check required fields
+        assert 'session_headers' in stats
+        assert 'verify_ssl' in stats
+        assert 'timeout' in stats
+        assert 'connection_pools' in stats
+        assert 'rate_limit' in stats
+
+        # Check rate limit structure
+        assert 'calls_per_second' in stats['rate_limit']
+        assert 'burst_size' in stats['rate_limit']
+        assert 'current_tokens' in stats['rate_limit']
+
+        # Verify types
+        assert isinstance(stats['verify_ssl'], bool)
+        assert isinstance(stats['timeout'], (int, float))
+        assert stats['rate_limit']['calls_per_second'] > 0
+
+    def test_get_session_info(self, client):
+        """Test get_session_info method returns session details."""
+        info = client.get_session_info()
+
+        # Check required fields
+        assert 'base_url' in info
+        assert 'tenant' in info
+        assert 'username' in info
+        assert 'endpoint' in info
+        assert 'logged_in' in info
+        assert 'persistent_login' in info
+        assert 'retry_on_idle_logout' in info
+        assert 'session_age' in info
+
+        # Verify values match configuration
+        assert info['base_url'] == client.base_url
+        assert info['tenant'] == client.tenant
+        assert info['username'] == client.username
+        assert isinstance(info['logged_in'], bool)
+        assert info['session_age'] >= 0
+
+    def test_get_api_usage_stats(self, client):
+        """Test get_api_usage_stats tracks API calls properly."""
+        client.reset_statistics() # Reset for a clean test
+        # Make some test requests
+        client.tests.get_list()
+        client.tests.get_by_id("123")
+
+        stats = client.get_api_usage_stats()
+
+        # Check required fields
+        assert 'total_requests' in stats
+        assert 'total_errors' in stats
+        assert 'requests_by_method' in stats
+        assert 'requests_by_endpoint' in stats
+        assert 'average_response_time' in stats
+        assert 'last_request_time' in stats
+
+        # After making requests, stats should be populated
+        assert stats['total_requests'] == 2
+        assert 'GET' in stats['requests_by_method']
+        assert 'Test' in stats['requests_by_endpoint']
+        assert stats['requests_by_method']['GET'] == 2
+        assert stats['requests_by_endpoint']['Test'] == 2
+
+    def test_get_schema_info(self, client):
+        """Test get_schema_info returns model and schema details."""
+        info = client.get_schema_info()
+
+        # Check required fields
+        assert 'endpoint_name' in info
+        assert 'endpoint_version' in info
+        assert 'available_endpoints' in info
+        assert 'total_models' in info
+        assert 'total_services' in info
+        assert 'custom_fields_count' in info
+        assert 'schema_cache_size_bytes' in info
+        assert 'cache_directory' in info
+        assert 'cache_ttl_hours' in info
+
+        # Verify reasonable values
+        assert info['total_models'] > 0
+        assert info['total_services'] > 0
+        assert info['custom_fields_count'] >= 0
+        assert isinstance(info['available_endpoints'], list)
+
+    def test_test_connection(self, client):
+        """Test test_connection method checks server connectivity."""
+        result = client.test_connection()
+
+        # Check required fields
+        assert 'reachable' in result
+        assert 'response_time' in result
+        assert 'endpoints_available' in result
+        assert 'error' in result
+
+        # In test environment should be reachable
+        assert result['reachable'] is True
+        assert result['response_time'] > 0
+        assert result['endpoints_available'] is True
+        assert result['error'] is None
+
+    def test_validate_credentials(self, client):
+        """Test validate_credentials checks auth status."""
+        result = client.validate_credentials()
+
+        # Check required fields
+        assert 'valid' in result
+        assert 'error' in result
+
+        # In test environment with valid creds
+        assert result['valid'] is True
+        assert result['error'] is None
+
+    def test_get_last_request_info(self, client):
+        """Test get_last_request_info tracks last API call."""
+        client.tests.get_by_id("123")
+
+        # Now should have info
+        info = client.get_last_request_info()
+        assert info is not None
+        assert 'timestamp' in info
+        assert 'method' in info
+        assert 'url' in info
+        assert 'status_code' in info
+        assert 'response_time' in info
+        assert 'error' in info
+
+        # Verify it's tracking our request
+        assert info['method'] == 'GET'
+        assert 'Test/123' in info['url']
+        assert info['status_code'] == 200
+
+    def test_get_error_history(self, client):
+        """Test get_error_history tracks errors properly."""
+        client.reset_statistics()
+        initial_count = len(client.get_error_history())
+
+        # Try to trigger an error
+        with pytest.raises(Exception):
+            client.tests.get_by_id("NONEXISTENT999")
+
+        # Check error history
+        errors = client.get_error_history(5)
+        assert len(errors) > initial_count
+
+        # Check error structure
+        error = errors[0]
+        assert 'timestamp' in error
+        assert 'method' in error
+        assert 'url' in error
+        assert 'message' in error
+        assert error['status_code'] == 404
+
+    def test_enable_request_history(self, client):
+        """Test request history tracking can be enabled/disabled."""
+        client.enable_request_history(max_items=10)
+
+        for i in range(3):
+            client.tests.get_list()
+
+        history = client.get_request_history(limit=5)
+        assert isinstance(history, list)
+        assert len(history) == 3
+
+        # Check request structure
+        request = history[0]
+        assert 'timestamp' in request
+        assert 'method' in request
+        assert 'url' in request
+        assert 'status_code' in request
+        assert 'response_time' in request
+
+    def test_get_health_status(self, client):
+        """Test get_health_status provides overall health metrics."""
+        status = client.get_health_status()
+
+        # Check required fields
+        assert 'status' in status
+        assert 'connection_reachable' in status
+        assert 'logged_in' in status
+        assert 'error_rate_percent' in status
+
+        # Check status value
+        assert status['status'] in ['healthy', 'warning', 'degraded', 'unhealthy']
+        assert status['connection_reachable'] is True
+        assert status['logged_in'] is True
+
+    def test_get_rate_limit_status(self, client):
+        """Test get_rate_limit_status returns rate limiting info."""
+        status = client.get_rate_limit_status()
+
+        # Check required fields
+        assert 'calls_per_second' in status
+        assert 'burst_size' in status
+        assert 'tokens_available' in status
+        assert 'tokens_percent' in status
+        assert 'last_call_time' in status
+
+        # Verify rate limiter is configured
+        assert status['calls_per_second'] > 0
+        assert status['burst_size'] >= status['calls_per_second']
+        assert status['tokens_available'] > 0
+
+    def test_reset_statistics(self, client):
+        """Test reset_statistics clears tracked metrics."""
+        client.tests.get_list()
+
+        stats_before = client.get_api_usage_stats()
+        assert stats_before['total_requests'] > 0
+
+        client.reset_statistics()
+
+        stats_after = client.get_api_usage_stats()
+        assert stats_after['total_requests'] == 0
+        assert stats_after['total_errors'] == 0
+        assert len(stats_after['requests_by_method']) == 0
+        assert len(stats_after['requests_by_endpoint']) == 0

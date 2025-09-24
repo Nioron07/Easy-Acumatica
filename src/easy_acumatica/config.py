@@ -16,6 +16,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
+from .exceptions import AcumaticaConfigError, ErrorCode
 
 try:
     import yaml
@@ -125,7 +126,10 @@ class AcumaticaConfig:
         required = ['URL', 'USERNAME', 'PASSWORD', 'TENANT']
         missing = [f"{prefix}{r}" for r in required if not os.getenv(f"{prefix}{r}")]
         if missing:
-            raise KeyError(f"Missing required environment variables: {', '.join(missing)}")
+            raise AcumaticaConfigError(
+                f"Missing required environment variables: {', '.join(missing)}",
+                missing_field=missing[0] if len(missing) == 1 else None
+            )
         
         return cls(
             base_url=os.environ[f"{prefix}URL"],
@@ -168,7 +172,14 @@ class AcumaticaConfig:
         """
         path = Path(path)
         if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {path}")
+            raise AcumaticaConfigError(
+                f"Configuration file not found: {path}",
+                suggestions=[
+                    f"Create the configuration file at: {path}",
+                    "Check if the file path is correct",
+                    "Use environment variables instead"
+                ]
+            )
         
         # Auto-detect format from extension
         if file_format is None:
@@ -179,10 +190,23 @@ class AcumaticaConfig:
                 data = json.load(f)
             elif file_format in ('yaml', 'yml'):
                 if not HAS_YAML:
-                    raise ValueError("PyYAML is required for YAML config files. Install with: pip install pyyaml")
+                    raise AcumaticaConfigError(
+                        "PyYAML is required for YAML config files",
+                        suggestions=[
+                            "Install PyYAML with: pip install pyyaml",
+                            "Use a JSON config file instead",
+                            "Use environment variables"
+                        ]
+                    )
                 data = yaml.safe_load(f)
             else:
-                raise ValueError(f"Unsupported file format: {file_format}")
+                raise AcumaticaConfigError(
+                        f"Unsupported file format: {file_format}",
+                        suggestions=[
+                            "Use .json, .yaml, or .yml file extensions",
+                            "Check the file extension is correct"
+                        ]
+                    )
         
         # Handle potential key variations and Path conversion
         normalized_data = {}
@@ -242,10 +266,23 @@ class AcumaticaConfig:
                 json.dump(data, f, indent=2)
             elif file_format in ('yaml', 'yml'):
                 if not HAS_YAML:
-                    raise ValueError("PyYAML is required for YAML config files. Install with: pip install pyyaml")
+                    raise AcumaticaConfigError(
+                        "PyYAML is required for YAML config files",
+                        suggestions=[
+                            "Install PyYAML with: pip install pyyaml",
+                            "Use a JSON config file instead",
+                            "Use environment variables"
+                        ]
+                    )
                 yaml.dump(data, f, default_flow_style=False)
             else:
-                raise ValueError(f"Unsupported file format: {file_format}")
+                raise AcumaticaConfigError(
+                        f"Unsupported file format: {file_format}",
+                        suggestions=[
+                            "Use .json, .yaml, or .yml file extensions",
+                            "Check the file extension is correct"
+                        ]
+                    )
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AcumaticaConfig":
@@ -307,17 +344,35 @@ class AcumaticaConfig:
         """
         # Check required fields
         if not self.base_url:
-            raise ValueError("base_url is required")
+            raise AcumaticaConfigError(
+                "base_url is required",
+                missing_field="base_url"
+            )
         if not self.username:
-            raise ValueError("username is required")
+            raise AcumaticaConfigError(
+                "username is required",
+                missing_field="username"
+            )
         if not self.password:
-            raise ValueError("password is required")
+            raise AcumaticaConfigError(
+                "password is required",
+                missing_field="password"
+            )
         if not self.tenant:
-            raise ValueError("tenant is required")
+            raise AcumaticaConfigError(
+                "tenant is required",
+                missing_field="tenant"
+            )
         
         # Validate URL format
         if not self.base_url.startswith(('http://', 'https://')):
-            raise ValueError("base_url must start with http:// or https://")
+            raise AcumaticaConfigError(
+                "base_url must start with http:// or https://",
+                suggestions=[
+                    "Add https:// to the beginning of your URL",
+                    f"Example: https://{self.base_url}"
+                ]
+            )
         
         # Validate numeric ranges
         if self.timeout <= 0:

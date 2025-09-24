@@ -24,7 +24,14 @@ _xml_version = "v1"
 
 @app.route('/entity/auth/login', methods=['POST'])
 def login():
-    """Simulates a successful login."""
+    """Simulates a successful login or various auth errors based on input."""
+    data = request.get_json()
+    if data and data.get('username') == 'expired_session':
+        return jsonify({"message": "Your session has expired. Please log in again."}), 401
+    elif data and data.get('username') == 'invalid':
+        return jsonify({"message": "Invalid credentials. Please check your username and password."}), 401
+    elif data and data.get('username') == 'forbidden':
+        return jsonify({"message": "Access forbidden. You do not have permission to access this resource."}), 403
     return jsonify({"message": "Logged in successfully"}), 200
 
 @app.route('/entity/auth/logout', methods=['POST'])
@@ -110,6 +117,69 @@ def get_odata_metadata(tenant: str):
         headers={'Content-Type': 'application/xml; charset=utf-8'}
     )
 
+# --- Error Testing Endpoints ---
+
+# Removed duplicate endpoint - auth errors handled by main login endpoint
+
+@app.route('/test/error/<int:status_code>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def trigger_error(status_code: int):
+    """Test endpoint to trigger specific HTTP error codes."""
+    error_responses = {
+        400: {"message": "Bad request. The request was invalid or cannot be served."},
+        401: {"message": "Authentication required. Please provide valid credentials."},
+        403: {"message": "Access forbidden. You do not have permission to access this resource."},
+        404: {"message": "Resource not found. The requested resource does not exist."},
+        408: {"message": "Request timeout. The server timed out waiting for the request."},
+        409: {"message": "Conflict. The request could not be completed due to a conflict."},
+        412: {"message": "Precondition failed. The record has been modified by another process."},
+        422: {"message": "Unprocessable entity. The request was well-formed but contains semantic errors."},
+        429: {"message": "Too many requests. Rate limit exceeded.", "retryAfter": 60},
+        500: {"message": "Internal server error. An unexpected error occurred."},
+        502: {"message": "Bad gateway. The server received an invalid response from the upstream server."},
+        503: {"message": "Service unavailable. The server is currently unable to handle the request."},
+        504: {"message": "Gateway timeout. The server did not receive a timely response."}
+    }
+
+    if status_code in error_responses:
+        return jsonify(error_responses[status_code]), status_code
+    return jsonify({"message": f"Error with status code {status_code}"}), status_code
+
+@app.route('/test/validation-error', methods=['POST'])
+def trigger_validation_error():
+    """Test endpoint to trigger validation errors with field-level details."""
+    return jsonify({
+        "message": "Validation failed. Please correct the errors and try again.",
+        "fieldErrors": {
+            "CustomerID": "Customer with ID 'CUST999' does not exist.",
+            "Amount": ["Amount must be a positive number.", "Amount exceeds available credit limit."],
+            "Email": "Invalid email format. Please enter a valid email address."
+        }
+    }), 422
+
+@app.route('/test/business-rule-error', methods=['POST'])
+def trigger_business_rule_error():
+    """Test endpoint to trigger business rule violations."""
+    return jsonify({
+        "message": "Cannot delete customer with open orders. Please close all orders before deleting."
+    }), 422
+
+@app.route('/test/batch-error', methods=['POST'])
+def trigger_batch_error():
+    """Test endpoint to simulate batch operation failures."""
+    return jsonify({
+        "message": "Batch execution failed. 2 of 5 operations failed.",
+        "failedOperations": [
+            {"index": 1, "error": "Customer 'CUST001' not found."},
+            {"index": 3, "error": "Validation failed for order SO-003."}
+        ]
+    }), 400
+
+@app.route('/test/timeout', methods=['GET'])
+def trigger_timeout():
+    """Test endpoint to simulate a timeout by sleeping longer than typical timeout."""
+    time.sleep(65)  # Sleep for 65 seconds to trigger client timeout
+    return jsonify({"message": "This should not be reached"}), 200
+
 # --- TestService Endpoints ---
 BASE_ENTITY_PATH = f"/entity/{TEST_ENDPOINT_NAME}/{LATEST_DEFAULT_VERSION}/Test"
 OLD_ENTITY_PATH = f"/entity/{TEST_ENDPOINT_NAME}/{OLD_DEFAULT_VERSION}/Test"
@@ -127,8 +197,17 @@ def get_list():
 @app.route(f'{BASE_ENTITY_PATH}/<entity_id>', methods=['GET'])
 def get_by_id(entity_id: str):
     """Handles get_by_id with files array."""
-    if entity_id != "123":
-        return jsonify({"error": "Not Found"}), 404
+    # Support various test entity IDs for different scenarios
+    if entity_id == "999" or entity_id == "888":
+        return jsonify({"message": f"Test entity with ID '{entity_id}' was not found."}), 404
+    elif entity_id == "error500":
+        return jsonify({"message": "Internal server error occurred while processing request."}), 500
+    elif entity_id == "error412":
+        return jsonify({"message": "The record has been modified by another user."}), 412
+    elif entity_id == "error429":
+        return jsonify({"message": "Rate limit exceeded.", "retryAfter": 30}), 429
+    elif entity_id != "123":
+        return jsonify({"message": f"Entity with ID '{entity_id}' not found."}), 404
 
     return jsonify({
         "id": "123",
@@ -171,6 +250,24 @@ def get_by_id_old_api_version(entity_id: str):
 def put_entity():
     """Handles the put_entity method. Echoes the sent data back."""
     data = request.json
+
+    # Check for special test cases
+    if data and 'Name' in data:
+        name_value = data['Name'].get('value', '') if isinstance(data['Name'], dict) else data['Name']
+
+        if name_value == "TriggerValidationError":
+            return jsonify({
+                "message": "Validation failed",
+                "fieldErrors": {
+                    "Name": "Name cannot contain special characters.",
+                    "Code": "Code is required when Name is specified."
+                }
+            }), 422
+        elif name_value == "TriggerConflict":
+            return jsonify({"message": "A record with this name already exists."}), 409
+        elif name_value == "TriggerServerError":
+            return jsonify({"message": "An unexpected server error occurred."}), 500
+
     data['id'] = "new-put-entity-id"
     return jsonify(data), 200
 
@@ -178,6 +275,15 @@ def put_entity():
 def delete_by_id(entity_id: str):
     """Handles the delete_by_id method. Returns No Content on success."""
     print(f"Received DELETE for ID: {entity_id}")
+
+    # Special test cases for error scenarios
+    if entity_id == "protected":
+        return jsonify({"message": "Cannot delete protected entity."}), 403
+    elif entity_id == "has_references":
+        return jsonify({"message": "Cannot delete entity with active references."}), 409
+    elif entity_id == "not_found":
+        return jsonify({"message": f"Entity with ID '{entity_id}' not found."}), 404
+
     return '', 204
 
 @app.route(f'{BASE_ENTITY_PATH}/TestAction', methods=['POST'])

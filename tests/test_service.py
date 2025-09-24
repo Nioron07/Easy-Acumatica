@@ -107,7 +107,7 @@ def test_inquiries_service_exists(client):
     assert hasattr(client, "inquiries"), "The 'inquiries' service should be created."
     inquiries_service = client.inquiries
     assert isinstance(inquiries_service, BaseService)
-    assert inquiries_service.entity_name == "Inquirie"
+    assert inquiries_service.entity_name == "Inquiries"
 
 def test_inquiry_methods_created(client):
     """Tests that inquiry methods were dynamically created from the XML metadata."""
@@ -208,4 +208,4 @@ def test_xml_metadata_parsing(client):
         assert callable(method), f"Method {method_name} should be callable"
         assert method.__doc__ is not None, f"Method {method_name} should have a docstring"
 
-print("✅ All inquiry service tests should now pass!")
+# All inquiry service tests should now pass!

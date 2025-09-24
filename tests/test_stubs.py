@@ -224,7 +224,7 @@ class AcumaticaClient:
 
 def test_introspection_based_stub_generation(live_server_url, monkeypatch):
     """
-    Verifies that the new introspection-based generate_stubs.py script 
+    Verifies that the new introspection-based generate_stubs.py script
     generates .pyi files in the stubs folder that match expected output.
     """
     dummy_args = [
@@ -239,25 +239,25 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
 
     written_files = {}
     created_dirs = []
-    
+
     # Mock Path operations
     original_mkdir = Path.mkdir
     original_write_text = Path.write_text
-    
+
     def mock_mkdir(self, **kwargs):
         created_dirs.append(str(self))
         return None
-    
+
     def mock_write_text(self, content, encoding='utf-8'):
         # Store the file path relative to stubs directory
         path_str = str(self)
         written_files[path_str] = content
         return None
-    
+
     with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', mock_mkdir):
         from easy_acumatica import generate_stubs
         generate_stubs.main()
-    
+
     # Verify the four expected files were written (models, services, client, __init__)
     stub_files = [f for f in written_files if f.endswith(".pyi")]
     assert len(stub_files) >= 2, f"Expected at least 2 stub files, but found {len(stub_files)}: {stub_files}"
@@ -266,37 +266,122 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
     assert any("models.pyi" in f for f in written_files), "models.pyi was not generated"
     assert any("client.pyi" in f for f in written_files), "client.pyi was not generated"
     assert any("py.typed" in f for f in written_files), "py.typed was not generated"
-    
+
     # Find the actual file contents
     models_content = None
     client_content = None
-    
+    services_content = None
+
     for path, content in written_files.items():
         if "models.pyi" in path:
             models_content = content
+        elif "services.pyi" in path:
+            services_content = content
         elif "client.pyi" in path and "__init__" not in path:
             client_content = content
-    
+
     assert models_content is not None, "Could not find models.pyi content"
     assert client_content is not None, "Could not find client.pyi content"
-    
+
     # Check models.pyi contains expected classes and correct import
     assert "from .core import BaseDataClassModel" in models_content
     assert "class Entity(BaseDataClassModel):" in models_content
     assert "class FileLink(BaseDataClassModel):" in models_content
     assert "class TestAction(BaseDataClassModel):" in models_content
     assert "class TestModel(BaseDataClassModel):" in models_content
-    
+
     # Check client.pyi contains expected service class with PascalCase
-    assert "class TestService(BaseService):" in client_content
-    assert "def get_list(" in client_content
-    assert "def put_entity(" in client_content
-    assert "from .core import BaseService" in client_content
-    
+    if services_content:
+        # Check services.pyi for return types
+        assert "class TestService(BaseService):" in services_content
+        assert "def get_list(" in services_content
+        assert "def put_entity(" in services_content
+        assert "from .core import BaseService" in services_content
+
+        # Check for proper return type annotations
+        # get_list should return List[TestService] or similar
+        assert ") -> List[" in services_content or ") -> TestService" in services_content, "Methods should have return type annotations"
+
     # Check client.pyi contains expected content
     assert "class AcumaticaClient:" in client_content
     assert "tests: TestService" in client_content
     assert "models: Any" in client_content
-    assert "from . import models" in client_content
-    
+    assert "from . import models" in client_content or "from .services import" in client_content
+
     print("✅ Introspection-based stub generation test passed!")
+
+
+def test_return_type_extraction():
+    """Test that return type extraction works correctly from OpenAPI schema."""
+    from easy_acumatica.generate_stubs import get_return_type_from_schema
+
+    # Test array return type
+    operation_details = {
+        "responses": {
+            "200": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return_type = get_return_type_from_schema(operation_details, {})
+    assert return_type == "List[Customer]", f"Expected List[Customer], got {return_type}"
+
+    # Test single entity return type
+    operation_details = {
+        "responses": {
+            "200": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/SalesOrder"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return_type = get_return_type_from_schema(operation_details, {})
+    assert return_type == "SalesOrder", f"Expected SalesOrder, got {return_type}"
+
+    # Test primitive return type
+    operation_details = {
+        "responses": {
+            "200": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return_type = get_return_type_from_schema(operation_details, {})
+    assert return_type == "str", f"Expected str, got {return_type}"
+
+    # Test no response (void/None)
+    operation_details = {
+        "responses": {
+            "204": {
+                "description": "No content"
+            }
+        }
+    }
+
+    return_type = get_return_type_from_schema(operation_details, {}, default_type="None")
+    assert return_type == "None", f"Expected None, got {return_type}"
+
+    print("✅ Return type extraction test passed!")

@@ -6,7 +6,12 @@ import logging
 import time
 import requests
 from dataclasses import dataclass
-from .exceptions import AcumaticaError
+from .exceptions import (
+    AcumaticaError,
+    AcumaticaBatchError,
+    AcumaticaAuthError,
+    ErrorCode
+)
 from typing import Any, Callable, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
@@ -164,10 +169,10 @@ class BatchCall:
                     
                     # Handle fail_fast
                     if self.fail_fast and first_error:
-                        # CORRECTED: Re-raise the original AcumaticaError
-                        if isinstance(first_error, AcumaticaError):
-                            raise first_error
-                        raise AcumaticaError(f"Batch execution failed (fail_fast=True): {first_error}")
+                        raise AcumaticaBatchError(
+                            f"Batch execution failed (fail_fast=True): {first_error}",
+                            failed_operations=[{"index": index, "error": str(first_error)}]
+                        )
 
                 
         except Exception as e:
@@ -438,8 +443,13 @@ class BatchCall:
                 if self.return_exceptions:
                     results.append(batch_result.error)
                 else:
-                    raise Exception(
-                        f"Call {i} failed: {batch_result.error}"
+                    raise AcumaticaBatchError(
+                        f"Call {i} failed: {batch_result.error}",
+                        failed_operations=[{
+                            "index": i,
+                            "error": str(batch_result.error),
+                            "operation": getattr(self.calls[i], 'method_name', 'unknown')
+                        }]
                     )
         
         return tuple(results)

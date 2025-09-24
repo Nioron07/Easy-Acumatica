@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy_acumatica"
-version = "0.4.9"
+version = "0.5.0"
 description = "Python wrapper for the Acumatica REST API"
 readme = "README.md"
 authors = [{ name="Matthew Hirstius", email="matthew.c.hirstius@gmail.com" }]
@@ -50,7 +50,7 @@ dev = [
 "Bug Tracker" = "https://github.com/Nioron07/Easy-Acumatica/issues"
 
 [project.scripts]
-easy-acumatica-stubs = "easy_acumatica.generate_stubs:main"
+generate-stubs = "easy_acumatica.generate_stubs:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

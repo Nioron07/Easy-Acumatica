@@ -23,6 +23,7 @@ dist/
 
 # Local Testing
 indepthtests/
+stubs/
 src/easy_acumatica/client.pyi
 src/easy_acumatica/models.pyi
 swagger.json

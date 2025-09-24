@@ -175,7 +175,6 @@ class ServiceFactory:
         services: Dict[str, BaseService] = {}
 
         # --- Part 1: Build services from OpenAPI Schema ---
-        print("\n--- Building services from OpenAPI Schema ---")
         paths = self._schema.get("paths", {})
         tags_to_ops: Dict[str, list] = {}
         for path, path_info in paths.items():
@@ -193,9 +192,8 @@ class ServiceFactory:
             for path, http_method, details in operations:
                 self._add_method_to_service(service_instance, path, http_method, details)
             services[tag] = service_instance
-        print(f"Completed building {len(services)} services from OpenAPI schema.")
 
-        tag = "Inquirie"
+        tag = "Inquiries"
         service_class = type(f"{tag}Service", (BaseService,), {
             "__init__": lambda s, client, entity_name=tag: BaseService.__init__(s, client, entity_name)
         })
@@ -204,7 +202,7 @@ class ServiceFactory:
 
         # Now populate it using the refactored loop
         try:
-            inquiries_service = services["Inquirie"]
+            inquiries_service = services["Inquiries"]
             xml_file_path = self._fetch_gi_xml()
             self._xml_file_path = xml_file_path
             namespaces = {'edmx': 'http://docs.oasis-open.org/odata/ns/edmx', 'edm': 'http://docs.oasis-open.org/odata/ns/edm'}
@@ -222,7 +220,6 @@ class ServiceFactory:
         except Exception as e:
             print(f"Could not build methods for Inquiries service: {e}")
 
-        print("\n--- Build Complete ---")
         return services
     
     def _fetch_gi_xml(self):
@@ -230,7 +227,6 @@ class ServiceFactory:
         Fetches the Generic Inquiries XML document and saves it to a .metadata folder inside the package directory.
         """
         metadata_url = f"{self._client.base_url}/t/{self._client.tenant}/api/odata/gi/$metadata"
-        print(f"Fetching schema from {metadata_url}...")
 
         try:
             response = requests.get(
@@ -248,7 +244,6 @@ class ServiceFactory:
             with open(output_path, 'wb') as f:
                 f.write(response.content)
 
-            print(f"Schema saved to {output_path}")
             return output_path
 
         except requests.exceptions.RequestException as e:

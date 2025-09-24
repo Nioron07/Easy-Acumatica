@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import requests
 
 from .helpers import _raise_with_detail
+from .exceptions import AcumaticaValidationError, AcumaticaSchemaError, AcumaticaError
 from .odata import QueryOptions
 
 if TYPE_CHECKING:
@@ -23,7 +24,10 @@ class BaseDataClassModel:
         by the Acumatica API.
         """
         if not is_dataclass(self):
-            raise TypeError("to_acumatica_payload can only be called on a dataclass instance.")
+            raise AcumaticaValidationError(
+                "to_acumatica_payload can only be called on a dataclass instance.",
+                suggestions=["Ensure this method is called on a dataclass model instance"]
+            )
 
         payload = {}
         for f in fields(self):
@@ -121,7 +125,15 @@ class BaseService:
         """Constructs the base URL for the service's entity."""
         version = api_version or self._client.endpoint_version or self._client.endpoints[self.endpoint_name]['version']
         if not version:
-            raise ValueError(f"API version for endpoint '{self.endpoint_name}' is not available.")
+            raise AcumaticaSchemaError(
+                f"API version for endpoint '{self.endpoint_name}' is not available.",
+                endpoint=self.endpoint_name,
+                suggestions=[
+                    "Check if the endpoint name is correct",
+                    "Verify the API version is set",
+                    "Ensure the endpoint exists in your Acumatica instance"
+                ]
+            )
         return f"{self._client.base_url}/entity/{self.endpoint_name}/{version}/{self.entity_name}"
 
 
@@ -143,7 +155,12 @@ class BaseService:
         kwargs.setdefault('timeout', 60)
 
         resp = self._client._request(method, url, **kwargs)
-        _raise_with_detail(resp)
+        _raise_with_detail(
+            resp,
+            operation=f"{method}_{self.entity_name}",
+            entity=self.entity_name,
+            request_data=kwargs.get('json')
+        )
 
         if not self._client.persistent_login:
             self._client.logout()
@@ -195,7 +212,11 @@ class BaseService:
         for key, value in key_fields.items():
             # Convert value to string, handling None values
             if value is None:
-                raise ValueError(f"Key field '{key}' cannot be None")
+                raise AcumaticaValidationError(
+                    f"Key field '{key}' cannot be None",
+                    field_errors={key: "Value cannot be None"},
+                    entity=self.entity_name
+                )
             key_values.append(str(value))
         
         # Append key values to URL as path segments
@@ -264,7 +285,16 @@ class BaseService:
         try:
             upload_url_template = record['_links']['files:put']
         except KeyError:
-            raise ValueError("Could not find file upload URL in the record's _links. Make sure the entity supports file attachments.")
+            raise AcumaticaError(
+                "Could not find file upload URL in the record's _links. Make sure the entity supports file attachments.",
+                entity=self.entity_name,
+                entity_id=entity_id,
+                suggestions=[
+                    "Verify this entity type supports file attachments",
+                    "Ensure the record exists and is accessible",
+                    "Check that you have permission to attach files"
+                ]
+            )
 
         # The full URL for the request, replacing the {filename} placeholder
         upload_url = f"{self._client.base_url}{upload_url_template.replace('{filename}', filename)}"

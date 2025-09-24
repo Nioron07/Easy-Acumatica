@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from easy_acumatica.utils import retry_on_error, RateLimiter, validate_entity_id
-from easy_acumatica.exceptions import AcumaticaError
+from easy_acumatica.exceptions import AcumaticaError, AcumaticaValidationError
 
 
 class TestRetryDecorator:
@@ -84,16 +84,16 @@ class TestValidateEntityId:
         assert validate_entity_id(["123", "456", "789"]) == "123,456,789"
     
     def test_empty_string_raises_error(self):
-        """Test that empty string raises ValueError."""
-        with pytest.raises(ValueError, match="Entity ID cannot be empty"):
+        """Test that empty string raises AcumaticaValidationError."""
+        with pytest.raises(AcumaticaValidationError, match="Entity ID cannot be empty"):
             validate_entity_id("")
     
     def test_empty_list_raises_error(self):
-        """Test that empty list raises ValueError."""
-        with pytest.raises(ValueError, match="Entity ID list cannot be empty"):
+        """Test that empty list raises AcumaticaValidationError."""
+        with pytest.raises(AcumaticaValidationError, match="Entity ID list cannot be empty"):
             validate_entity_id([])
     
     def test_invalid_type_raises_error(self):
-        """Test that invalid type raises TypeError."""
-        with pytest.raises(TypeError):
+        """Test that invalid type raises AcumaticaValidationError."""
+        with pytest.raises(AcumaticaValidationError, match="Entity ID must be string or list of strings"):
             validate_entity_id(123)

@@ -70,7 +70,7 @@ def test_inquiries_service_generation(live_server_url):
     assert hasattr(client, "inquiries"), "The 'inquiries' service should be created."
     inquiries_service = client.inquiries
     assert isinstance(inquiries_service, BaseService)
-    assert inquiries_service.entity_name == "Inquirie"
+    assert inquiries_service.entity_name == "Inquiries"
 
     # 3. Assert Inquiry Methods Creation from XML Metadata
     expected_inquiry_methods = [

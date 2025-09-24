@@ -22,7 +22,12 @@ from weakref import WeakKeyDictionary
 
 import requests
 
-from .exceptions import AcumaticaError
+from .exceptions import (
+    AcumaticaError,
+    AcumaticaRetryExhaustedError,
+    AcumaticaValidationError,
+    ErrorCode
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +93,11 @@ def retry_on_error(
             # This should never be reached, but just in case
             if last_exception:
                 raise last_exception
-            raise AcumaticaError(f"Unexpected error in retry logic for {getattr(func, '__name__', repr(func))}")
+            raise AcumaticaRetryExhaustedError(
+                f"Unexpected error in retry logic for {getattr(func, '__name__', repr(func))}",
+                attempts=max_retries,
+                last_error=last_exception
+            )
         
         return wrapper
     return decorator
@@ -172,20 +181,40 @@ def validate_entity_id(entity_id: Union[str, List[str]]) -> str:
     """
     if isinstance(entity_id, list):
         if not entity_id:
-            raise ValueError("Entity ID list cannot be empty")
+            raise AcumaticaValidationError(
+                "Entity ID list cannot be empty",
+                field_errors={"entity_ids": "List cannot be empty"},
+                suggestions=["Provide at least one entity ID"]
+            )
         if not all(isinstance(id, str) for id in entity_id):
-            raise ValueError("All entity IDs must be strings")
+            raise AcumaticaValidationError(
+                "All entity IDs must be strings",
+                field_errors={"entity_ids": f"Non-string ID found: {[id for id in entity_ids if not isinstance(id, str)]}"},
+                suggestions=["Convert all IDs to strings before passing"]
+            )
         # Validate each ID
         for id in entity_id:
             if not id.strip():
-                raise ValueError(f"Invalid entity ID in list: '{id}'")
+                raise AcumaticaValidationError(
+                    f"Invalid entity ID in list: '{id}'",
+                    field_errors={"entity_ids": f"Invalid ID: '{id}'"},
+                    suggestions=["Entity IDs cannot be empty strings"]
+                )
         return ",".join(entity_id)
     elif isinstance(entity_id, str):
         if not entity_id.strip():
-            raise ValueError("Entity ID cannot be empty")
+            raise AcumaticaValidationError(
+                "Entity ID cannot be empty",
+                field_errors={"entity_id": "Empty string"},
+                suggestions=["Provide a valid entity ID"]
+            )
         return entity_id
     else:
-        raise TypeError(f"Entity ID must be string or list of strings, not {type(entity_id).__name__}")
+        raise AcumaticaValidationError(
+            f"Entity ID must be string or list of strings, not {type(entity_id).__name__}",
+            field_errors={"entity_id": f"Invalid type: {type(entity_id).__name__}"},
+            suggestions=["Pass a string ID or list of string IDs"]
+        )
 
 
 def sanitize_filename(filename: str) -> str:
@@ -273,7 +302,11 @@ def chunk_list(lst: List[Any], chunk_size: int) -> List[List[Any]]:
         [[1, 2], [3, 4], [5]]
     """
     if chunk_size <= 0:
-        raise ValueError("Chunk size must be positive")
+        raise AcumaticaValidationError(
+            "Chunk size must be positive",
+            field_errors={"chunk_size": f"Invalid value: {chunk_size}"},
+            suggestions=["Use a positive integer for chunk size"]
+        )
     return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
 
 

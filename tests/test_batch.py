@@ -3,7 +3,7 @@
 import pytest
 from easy_acumatica import AcumaticaClient
 from easy_acumatica.batch import BatchCall, create_batch_from_ids, create_batch_from_filters
-from easy_acumatica.exceptions import AcumaticaNotFoundError
+from easy_acumatica.exceptions import AcumaticaNotFoundError, AcumaticaBatchError
 from easy_acumatica.odata import QueryOptions
 
 def test_successful_batch_get_by_id(base_client_config, reset_server_state):
@@ -71,8 +71,8 @@ def test_batch_with_mixed_success_and_failure(base_client_config, reset_server_s
 def test_batch_fail_fast(base_client_config, reset_server_state):
     """Tests the fail_fast functionality of BatchCall."""
     client = AcumaticaClient(**base_client_config)
-    
-    with pytest.raises(AcumaticaNotFoundError):
+
+    with pytest.raises(AcumaticaBatchError):
         BatchCall(
             client.tests.get_by_id.batch("123"),
             client.tests.get_by_id.batch("999"),  # This will fail
@@ -84,8 +84,8 @@ def test_batch_fail_fast(base_client_config, reset_server_state):
 def test_batch_return_exceptions_false(base_client_config, reset_server_state):
     """Tests that an exception is raised immediately when return_exceptions is False."""
     client = AcumaticaClient(**base_client_config)
-    
-    with pytest.raises(Exception):
+
+    with pytest.raises(AcumaticaBatchError):
         BatchCall(
             client.tests.get_by_id.batch("123"),
             client.tests.get_by_id.batch("999"),

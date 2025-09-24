@@ -82,7 +82,7 @@ from .core import BaseDataClassModel, BaseService
 
 __all__ = ["AcumaticaClient"]
 
-# Configure logging
+# Logger instance (not used directly, available for external use)
 logger = logging.getLogger(__name__)
 
 # Track all client instances for cleanup
@@ -130,8 +130,8 @@ def load_env_file(env_file_path: Path) -> Dict[str, str]:
                 env_vars[key] = value
                 
     except Exception as e:
-        logger.warning(f"Failed to load .env file {env_file_path}: {e}")
-    
+        pass  # Silently skip if .env file cannot be loaded
+
     return env_vars
 
 
@@ -169,10 +169,8 @@ def find_env_file(start_path: Optional[Path] = None) -> Optional[Path]:
     for path in [current_path] + list(current_path.parents):
         env_file = path / '.env'
         if env_file.exists():
-            logger.debug(f"Found .env file at: {env_file}")
             return env_file
-    
-    logger.debug("No .env file found")
+
     return None
 
 
@@ -284,15 +282,13 @@ class AcumaticaClient:
                     env_file_path = Path(env_file)
                     if env_file_path.exists():
                         env_vars_loaded = load_env_file(env_file_path)
-                        logger.info(f"Loaded configuration from: {env_file_path}")
                     else:
-                        logger.warning(f"Specified .env file not found: {env_file_path}")
+                        pass  # Specified .env file not found
                 else:
                     # Search for .env file automatically
                     found_env_file = find_env_file()
                     if found_env_file:
                         env_vars_loaded = load_env_file(found_env_file)
-                        logger.info(f"Automatically loaded configuration from: {found_env_file}")
                 
                 # Apply loaded environment variables to os.environ temporarily
                 # so they can be picked up by the config loading logic
@@ -485,8 +481,13 @@ class AcumaticaClient:
             atexit.register(_cleanup_all_clients)
             AcumaticaClient._atexit_registered = True
         
-        logger.info(f"AcumaticaClient initialized for {self.base_url} (tenant: {self.tenant}) "
-                   f"in {self._startup_time:.2f}s (cache {'enabled' if self.cache_enabled else 'disabled'})")
+        # Track initialization stats
+        self._init_stats = {
+            'startup_time': self._startup_time,
+            'cache_enabled': self.cache_enabled,
+            'models_loaded': len(self._model_classes),
+            'services_loaded': len(self._service_instances)
+        }
 
     def _create_session(self) -> requests.Session:
         """Creates a configured requests session with connection pooling and retry logic."""
@@ -524,7 +525,6 @@ class AcumaticaClient:
         url = f"{self.base_url}/entity"
         
         try:
-            logger.debug(f"Fetching endpoint information from {url}")
             response = self._request("get", url)
             endpoint_data = response.json()
         except requests.RequestException as e:
@@ -542,7 +542,6 @@ class AcumaticaClient:
             if name and (name not in self.endpoints or 
                         endpoint.get('version', '0') > self.endpoints[name].get('version', '0')):
                 self.endpoints[name] = endpoint
-                logger.debug(f"Found endpoint: {name} v{endpoint.get('version')}")
 
     def _build_components(self) -> None:
         """Build models and services with differential caching support."""
@@ -563,11 +562,10 @@ class AcumaticaClient:
         try:
             current_inquiries_xml = self._fetch_gi_xml()
         except Exception as e:
-            logger.warning(f"Could not fetch inquiries XML: {e}")
+            pass  # Could not fetch inquiries XML
         
         if self.force_rebuild or not cache_file.exists():
             # Fresh build
-            logger.info("Building components from scratch (no cache or force rebuild)")
             self._build_dynamic_models(current_schema)
             self._build_dynamic_services(current_schema)
             if current_inquiries_xml:
@@ -581,7 +579,6 @@ class AcumaticaClient:
             cached_data = self._load_differential_cache(cache_file)
             if cached_data is None:
                 # Cache invalid, rebuild everything
-                logger.info("Cache invalid, rebuilding everything")
                 self._build_dynamic_models(current_schema)
                 self._build_dynamic_services(current_schema)
                 if current_inquiries_xml:
@@ -595,7 +592,7 @@ class AcumaticaClient:
             self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
             
         except Exception as e:
-            logger.warning(f"Differential caching failed: {e}. Rebuilding from scratch.")
+            # Differential caching failed, rebuild from scratch
             self._build_dynamic_models(current_schema)
             self._build_dynamic_services(current_schema)
             if current_inquiries_xml:
@@ -636,11 +633,10 @@ class AcumaticaClient:
                 pickle.dump(cache_data, f)
             
             temp_file.replace(cache_file)
-            logger.debug(f"Saved differential cache with {len(self._model_classes)} models, "
-                        f"{len(self._service_instances)} services, {len(inquiry_hashes)} inquiries")
+            # Cache saved successfully
             
         except Exception as e:
-            logger.warning(f"Failed to save differential cache: {e}")
+            pass  # Failed to save differential cache
 
     def _load_differential_cache(self, cache_file: Path) -> Dict[str, Any]:
         """Load and validate differential cache."""
@@ -651,14 +647,12 @@ class AcumaticaClient:
             # Validate cache format version
             cache_version = cached_data.get('version', '1.0')
             if cache_version not in ['1.0', '1.1']:
-                logger.debug(f"Cache format version {cache_version} not supported")
-                return None
+                return None  # Cache format version not supported
             
             # Check TTL
             cache_age = time.time() - cached_data.get('timestamp', 0)
             if cache_age > (self.cache_ttl_hours * 3600):
-                logger.debug("Cache expired due to TTL")
-                return None
+                return None  # Cache expired due to TTL
             
             # Validate endpoint compatibility
             endpoint_info = cached_data.get('endpoint_info', {})
@@ -666,20 +660,18 @@ class AcumaticaClient:
                 endpoint_info.get('version') != self.endpoint_version or
                 endpoint_info.get('base_url') != self.base_url or
                 endpoint_info.get('tenant') != self.tenant):
-                logger.debug("Cache endpoint info mismatch")
-                return None
+                return None  # Cache endpoint info mismatch
                 
             return cached_data
         except requests.exceptions.ConnectionError:
-            logger.warning("Network error during cache validation, using stale cache.")
+            # Network error during cache validation, using stale cache
             return cached_data
         except Exception as e:
-            logger.debug(f"Failed to load cache: {e}")
-            return None
+            return None  # Failed to load cache
 
     def _perform_differential_update(self, cached_data: Dict[str, Any], current_schema: Dict[str, Any], inquiries_xml_path: str = None) -> None:
         """Perform differential update of models, services, and inquiries."""
-        logger.info("Performing differential cache update")
+        # Perform differential cache update
         
         # Calculate current hashes
         current_model_hashes = self._calculate_model_hashes(current_schema)
@@ -707,7 +699,6 @@ class AcumaticaClient:
         for model_name in models_to_remove:
             self._remove_model(model_name)
             models_removed += 1
-            logger.debug(f"Removed model: {model_name}")
         
         # Find models to add or update
         models_to_build = []
@@ -718,12 +709,10 @@ class AcumaticaClient:
                 # New model
                 models_to_build.append(model_name)
                 models_added += 1
-                logger.debug(f"New model detected: {model_name}")
             elif cached_hash != current_hash:
                 # Changed model
                 models_to_build.append(model_name)
                 models_changed += 1
-                logger.debug(f"Changed model detected: {model_name}")
             else:
                 # Unchanged model - restore from cache
                 cached_models = cached_data.get('models', {})
@@ -747,7 +736,6 @@ class AcumaticaClient:
         services_to_remove = set(cached_service_hashes.keys()) - set(current_service_hashes.keys())
         for service_name in services_to_remove:
             self._remove_service(service_name)
-            logger.debug(f"Removed service: {service_name}")
         
         # Find services to rebuild (new, changed, or dependent on changed models)
         services_to_rebuild = set()
@@ -757,11 +745,9 @@ class AcumaticaClient:
             
             if cached_hash is None:
                 services_to_rebuild.add(service_name)
-                logger.debug(f"New service detected: {service_name}")
             elif cached_hash != current_hash:
                 services_to_rebuild.add(service_name)
                 services_changed += 1
-                logger.debug(f"Changed service detected: {service_name}")
         
         # Also rebuild services that depend on changed models
         changed_models = set(models_to_build)
@@ -771,7 +757,7 @@ class AcumaticaClient:
         
         # Build services (excluding inquiries service which is handled separately)
         if services_to_rebuild:
-            regular_services = {name for name in services_to_rebuild if name != "Inquirie"}
+            regular_services = {name for name in services_to_rebuild if name != "Inquiries"}
             if regular_services:
                 self._build_specific_services(current_schema, regular_services)
         else:
@@ -795,25 +781,22 @@ class AcumaticaClient:
                     inquiries_to_build.append(inquiry_name)
                     inquiries_added += 1
                     inquiries_service_needs_update = True
-                    logger.debug(f"New inquiry detected: {inquiry_name}")
                 elif cached_hash != current_hash:
                     inquiries_to_build.append(inquiry_name)
                     inquiries_changed += 1
                     inquiries_service_needs_update = True
-                    logger.debug(f"Changed inquiry detected: {inquiry_name}")
             
             # If any inquiries changed or we have removals, rebuild the entire inquiries service
             if inquiries_to_remove or inquiries_service_needs_update:
-                logger.debug("Rebuilding inquiries service due to changes")
+                # Rebuild inquiries service due to changes
                 self._build_inquiries_service(inquiries_xml_path)
                 inquiries_removed = len(inquiries_to_remove)
-            elif "Inquirie" not in self._service_instances:
+            elif "Inquiries" not in self._service_instances:
                 # Inquiries service doesn't exist, build it
-                logger.debug("Building missing inquiries service")
                 self._build_inquiries_service(inquiries_xml_path)
             else:
                 # No changes to inquiries, keep existing service
-                logger.debug("No changes to inquiries, keeping existing service")
+                pass
         
         # Update counters
         self._cache_hits += cache_hits
@@ -824,13 +807,13 @@ class AcumaticaClient:
         else:
             self._cache_hits += 1  # Complete hit
         
-        logger.info(
-            f"Differential update complete: "
-            f"Models (+{models_added} -{models_removed} ~{models_changed}), "
-            f"Services (~{services_changed}), "
-            f"Inquiries (+{inquiries_added} -{inquiries_removed} ~{inquiries_changed}), "
-            f"Cache hits: {cache_hits}"
-        )
+        # Track differential update stats
+        self._last_differential_update = {
+            'models': {'added': models_added, 'changed': models_changed, 'removed': models_removed},
+            'services': {'changed': services_changed},
+            'inquiries': {'added': inquiries_added, 'changed': inquiries_changed, 'removed': inquiries_removed},
+            'cache_hits': cache_hits
+        }
 
     def _calculate_inquiry_hashes(self, xml_file_path: str) -> Dict[str, str]:
         """Calculate hash for each inquiry definition in the XML."""
@@ -881,7 +864,7 @@ class AcumaticaClient:
                         inquiry_hashes[original_name] = hashlib.md5(hash_input.encode()).hexdigest()
                         
         except Exception as e:
-            logger.warning(f"Error calculating inquiry hashes: {e}")
+            pass  # Error calculating inquiry hashes
         
         return inquiry_hashes
 
@@ -924,7 +907,7 @@ class AcumaticaClient:
                         }
                         
         except Exception as e:
-            logger.warning(f"Error extracting inquiry definitions: {e}")
+            pass  # Error extracting inquiry definitions
         
         return inquiry_defs
 
@@ -937,16 +920,16 @@ class AcumaticaClient:
         """Build the inquiries service from XML file."""
         try:
             # Create the inquiries service if it doesn't exist
-            if "Inquirie" not in self._service_instances:
+            if "Inquiries" not in self._service_instances:
                 from .core import BaseService
-                service_class = type("InquirieService", (BaseService,), {
-                    "__init__": lambda s, client, entity_name="Inquirie": BaseService.__init__(s, client, entity_name)
+                service_class = type("InquiriesService", (BaseService,), {
+                    "__init__": lambda s, client, entity_name="Inquiries": BaseService.__init__(s, client, entity_name)
                 })
                 inquiries_service = service_class(self)
-                self._service_instances["Inquirie"] = inquiries_service
-                self._available_services.add("Inquirie")
+                self._service_instances["Inquiries"] = inquiries_service
+                self._available_services.add("Inquiries")
             else:
-                inquiries_service = self._service_instances["Inquirie"]
+                inquiries_service = self._service_instances["Inquiries"]
             
             # Parse XML and add methods
             namespaces = {
@@ -973,10 +956,11 @@ class AcumaticaClient:
                         entity_type, xml_file_path
                     )
                     
-                logger.debug(f"Built inquiries service with methods from {xml_file_path}")
-            
+                # Built inquiries service successfully
+                pass
+
         except Exception as e:
-            logger.error(f"Could not build inquiries service: {e}")
+            pass  # Could not build inquiries service
 
     def _clear_inquiry_methods(self, service) -> None:
         """Remove existing inquiry methods from service."""
@@ -1075,7 +1059,6 @@ class AcumaticaClient:
     def _fetch_gi_xml(self) -> str:
         """Fetch Generic Inquiries XML and return the file path."""
         metadata_url = f"{self.base_url}/t/{self.tenant}/api/odata/gi/$metadata"
-        logger.debug(f"Fetching inquiries schema from {metadata_url}")
 
         try:
             import requests
@@ -1095,12 +1078,11 @@ class AcumaticaClient:
             with open(output_path, 'wb') as f:
                 f.write(response.content)
 
-            logger.debug(f"Inquiries schema saved to {output_path}")
+            # Inquiries schema saved successfully
             return output_path
 
         except Exception as e:
-            logger.error(f"Error fetching inquiries metadata: {e}")
-            raise
+            raise  # Error fetching inquiries metadata
 
     # ... [Rest of the existing methods from the previous artifact] ...
 
@@ -1234,7 +1216,7 @@ class AcumaticaClient:
 
     def _build_specific_models(self, schema: Dict[str, Any], model_names: List[str]) -> None:
         """Build only specific models from the schema."""
-        logger.debug(f"Building {len(model_names)} specific models")
+        # Build specific models from the schema
         
         factory = ModelFactory(schema)
         
@@ -1243,13 +1225,13 @@ class AcumaticaClient:
                 model_class = factory._get_or_build_model(model_name)
                 setattr(self.models, model_name, model_class)
                 self._model_classes[model_name] = model_class
-                logger.debug(f"Built model: {model_name}")
+                pass  # Model built successfully
             except Exception as e:
-                logger.error(f"Failed to build model {model_name}: {e}")
+                pass  # Failed to build model
 
     def _build_specific_services(self, schema: Dict[str, Any], service_names: Set[str]) -> None:
         """Build only specific services from the schema."""
-        logger.debug(f"Building {len(service_names)} specific services")
+        # Build specific services from the schema
         
         factory = ServiceFactory(self, schema)
         all_services = factory.build_services()
@@ -1257,11 +1239,25 @@ class AcumaticaClient:
         for service_name in service_names:
             if service_name in all_services:
                 service_instance = all_services[service_name]
-                attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+                # Convert PascalCase to snake_case
+                snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
+                # Handle pluralization properly
+                if service_name == 'Inquiries' or snake_case.endswith('ies'):
+                    attr_name = snake_case
+                elif snake_case.endswith('inquiry'):
+                    # inquiry -> inquiries
+                    attr_name = snake_case[:-1] + 'ies'
+                elif snake_case.endswith('class'):
+                    # class -> classes
+                    attr_name = snake_case + 'es'
+                elif not snake_case.endswith('s'):
+                    attr_name = snake_case + 's'
+                else:
+                    attr_name = snake_case
                 setattr(self, attr_name, service_instance)
                 self._available_services.add(service_name)
                 self._service_instances[service_name] = service_instance
-                logger.debug(f"Built service: {attr_name}")
+                pass  # Service built successfully
 
     def _restore_services_from_cache(self, cached_data: Dict[str, Any], current_schema: Dict[str, Any]) -> None:
         """Restore services when they haven't changed."""
@@ -1369,8 +1365,7 @@ class AcumaticaClient:
             # Check TTL
             cache_age = time.time() - schema_hash_file.stat().st_mtime
             if cache_age > (self.cache_ttl_hours * 3600):
-                logger.debug("Cache expired due to TTL")
-                return False
+                return False  # Cache expired due to TTL
             
             # Check schema hash
             with open(schema_hash_file, 'r') as f:
@@ -1381,12 +1376,11 @@ class AcumaticaClient:
             
             is_valid = cached_hash == current_hash
             if not is_valid:
-                logger.debug("Cache invalid due to schema changes")
+                pass  # Cache invalid due to schema changes
             return is_valid
             
         except Exception as e:
-            logger.debug(f"Cache validation failed: {e}")
-            return False
+            return False  # Cache validation failed
 
     def _save_to_cache(self, cache_file: Path, schema_hash_file: Path, schema: Dict[str, Any]) -> None:
         """Save current models to cache."""
@@ -1406,10 +1400,10 @@ class AcumaticaClient:
             with open(schema_hash_file, 'w') as f:
                 f.write(schema_hash)
             
-            logger.debug(f"Saved cache with {len(cache_data['models'])} models")
+            pass  # Cache saved successfully
             
         except Exception as e:
-            logger.warning(f"Failed to save cache: {e}")
+            pass  # Failed to save cache
 
     @lru_cache(maxsize=32)
     def _fetch_schema(self, endpoint_name: str = "Default", version: str = None) -> Dict[str, Any]:
@@ -1430,14 +1424,14 @@ class AcumaticaClient:
             version = self.endpoints[endpoint_name]['version']
         cache_key = f"{endpoint_name}:{version}"
         if cache_key in self._schema_cache:
-            logger.debug(f"Using cached schema for {cache_key}")
+            # Using cached schema
             return self._schema_cache[cache_key]
         
         schema_url = f"{self.base_url}/entity/{endpoint_name}/{version}/swagger.json"
         if self.tenant:
             schema_url += f"?company={self.tenant}"
         
-        logger.info(f"Fetching schema from {schema_url}")
+        # Fetch schema from API
         
         try:
             schema = self._request("get", schema_url).json()
@@ -1448,7 +1442,7 @@ class AcumaticaClient:
 
     def _build_dynamic_models(self, schema: Dict[str, Any]) -> None:
         """Populates the 'models' module with dynamically generated dataclasses."""
-        logger.info("Building dynamic models from schema")
+        # Building dynamic models from schema
         
         try:
             factory = ModelFactory(schema)
@@ -1461,16 +1455,16 @@ class AcumaticaClient:
                     model_class.__module__ = 'easy_acumatica.models'
                 setattr(self.models, name, model_class)
                 self._model_classes[name] = model_class
-                logger.debug(f"Created model: {name}")
+                pass  # Model created successfully
                 
-            logger.info(f"Successfully built {len(model_dict)} models")
+            # Successfully built models
             
         except Exception as e:
             raise AcumaticaError(f"Failed to build dynamic models: {e}")
 
     def _build_dynamic_services(self, schema: Dict[str, Any]) -> None:
         """Attaches dynamically created services to the client instance."""
-        logger.info("Building dynamic services from schema")
+        # Building dynamic services from schema
         
         try:
             factory = ServiceFactory(self, schema)
@@ -1478,7 +1472,20 @@ class AcumaticaClient:
             
             for name, service_instance in services_dict.items():
                 # Convert PascalCase to snake_case
-                attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_') + 's'
+                snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_')
+                # Handle pluralization properly
+                if name == 'Inquiries' or snake_case.endswith('ies'):
+                    attr_name = snake_case
+                elif snake_case.endswith('inquiry'):
+                    # inquiry -> inquiries
+                    attr_name = snake_case[:-1] + 'ies'
+                elif snake_case.endswith('class'):
+                    # class -> classes
+                    attr_name = snake_case + 'es'
+                elif not snake_case.endswith('s'):
+                    attr_name = snake_case + 's'
+                else:
+                    attr_name = snake_case
                 
                 # Add batch support to all service methods
                 self._add_batch_support_to_service(service_instance)
@@ -1486,9 +1493,9 @@ class AcumaticaClient:
                 setattr(self, attr_name, service_instance)
                 self._available_services.add(name)
                 self._service_instances[name] = service_instance
-                logger.debug(f"Created service: {attr_name}")
+                pass  # Service created successfully
                 
-            logger.info(f"Successfully built {len(services_dict)} services")
+            # Successfully built services
             
         except Exception as e:
             raise AcumaticaError(f"Failed to build dynamic services: {e}")
@@ -1512,7 +1519,7 @@ class AcumaticaClient:
                 wrapper = BatchMethodWrapper(original_method, service_instance)
                 setattr(service_instance, method_name, wrapper)
         
-        logger.debug(f"Added batch support to {len(method_names)} methods on {service_instance.entity_name} service")
+        # Added batch support to service methods
     # --- Utility Methods ---
 
     def list_models(self) -> List[str]:
@@ -1684,10 +1691,383 @@ class AcumaticaClient:
             'schema_cache_size': len(self._schema_cache)
         }
 
+    def get_connection_stats(self) -> Dict[str, Any]:
+        """
+        Get detailed connection and session pool statistics.
+
+        Returns:
+            Dictionary with connection pool metrics
+
+        Example:
+            >>> stats = client.get_connection_stats()
+            >>> print(f"Active connections: {stats['active_connections']}")
+        """
+        pool_stats = {}
+
+        # Get connection pool stats from the HTTPAdapter
+        for prefix in ['http://', 'https://']:
+            adapter = self.session.get_adapter(prefix)
+            if hasattr(adapter, 'poolmanager') and adapter.poolmanager:
+                pools = adapter.poolmanager.pools
+                pool_stats[prefix] = {
+                    'num_pools': len(pools),
+                    # Correctly access the private attributes
+                    'pool_connections': adapter._pool_connections if hasattr(adapter, '_pool_connections') else None,
+                    'pool_maxsize': adapter._pool_maxsize if hasattr(adapter, '_pool_maxsize') else None,
+                    'max_retries': adapter.max_retries.total if hasattr(adapter.max_retries, 'total') else 0
+                }
+
+        return {
+            'session_headers': dict(self.session.headers),
+            'verify_ssl': self.session.verify,
+            'timeout': self.timeout,
+            'connection_pools': pool_stats,
+            'rate_limit': {
+                'calls_per_second': self._rate_limiter.calls_per_second,
+                'burst_size': self._rate_limiter.burst_size,
+                'current_tokens': self._rate_limiter._tokens
+            }
+        }
+
+    def get_session_info(self) -> Dict[str, Any]:
+        """
+        Get current session information and authentication status.
+
+        Returns:
+            Dictionary with session details
+
+        Example:
+            >>> info = client.get_session_info()
+            >>> print(f"Logged in: {info['logged_in']}")
+        """
+        import time
+
+        return {
+            'base_url': self.base_url,
+            'tenant': self.tenant,
+            'username': self.username,
+            'endpoint': f"{self.endpoint_name} v{self.endpoint_version}",
+            'logged_in': self._logged_in,
+            'persistent_login': self.persistent_login,
+            'retry_on_idle_logout': self.retry_on_idle_logout,
+            'session_age': time.time() - self._startup_time if self._startup_time else None,
+            'initialization_stats': getattr(self, '_init_stats', {}),
+            'last_differential_update': getattr(self, '_last_differential_update', None)
+        }
+
+    def get_api_usage_stats(self) -> Dict[str, Any]:
+        """
+        Get API usage statistics (requires request history to be enabled).
+
+        Returns:
+            Dictionary with API usage metrics
+
+        Example:
+            >>> stats = client.get_api_usage_stats()
+            >>> print(f"Total requests: {stats['total_requests']}")
+        """
+        # This will be populated when request history is implemented
+        return {
+            'total_requests': getattr(self, '_total_requests', 0),
+            'total_errors': getattr(self, '_total_errors', 0),
+            'requests_by_method': getattr(self, '_requests_by_method', {}),
+            'requests_by_endpoint': getattr(self, '_requests_by_endpoint', {}),
+            'average_response_time': getattr(self, '_avg_response_time', 0),
+            'last_request_time': getattr(self, '_last_request_time', None)
+        }
+
+    def get_schema_info(self) -> Dict[str, Any]:
+        """
+        Get information about the loaded schema and models.
+
+        Returns:
+            Dictionary with schema details
+
+        Example:
+            >>> info = client.get_schema_info()
+            >>> print(f"Schema version: {info['endpoint_version']}")
+        """
+        import os
+
+        schema_size = 0
+        if hasattr(self, '_schema_cache'):
+            # Estimate size of cached schemas
+            import sys
+            for key, schema in self._schema_cache.items():
+                schema_size += sys.getsizeof(schema)
+
+        return {
+            'endpoint_name': self.endpoint_name,
+            'endpoint_version': self.endpoint_version,
+            'available_endpoints': list(self.endpoints.keys()),
+            'total_models': len(self._model_classes),
+            'total_services': len(self._service_instances),
+            'custom_fields_count': self._count_custom_fields(),
+            'schema_cache_size_bytes': schema_size,
+            'cache_directory': str(self.cache_dir) if self.cache_enabled else None,
+            'cache_ttl_hours': self.cache_ttl_hours
+        }
+
+    def _count_custom_fields(self) -> int:
+        """Count total custom fields across all models."""
+        count = 0
+        for model_name, model_class in self._model_classes.items():
+            if hasattr(model_class, '__annotations__'):
+                for field_name in model_class.__annotations__.keys():
+                    if field_name.startswith('Custom') or field_name.startswith('Usr'):
+                        count += 1
+        return count
+
+    def get_last_request_info(self) -> Optional[Dict[str, Any]]:
+        """
+        Get information about the last API request made.
+
+        Returns:
+            Dictionary with last request details or None
+
+        Example:
+            >>> info = client.get_last_request_info()
+            >>> if info:
+            ...     print(f"Last request: {info['method']} {info['url']}")
+        """
+        return getattr(self, '_last_request_info', None)
+
+    def test_connection(self) -> Dict[str, Any]:
+        """
+        Test connection to Acumatica server without authentication.
+
+        Returns:
+            Dictionary with connection test results
+
+        Example:
+            >>> result = client.test_connection()
+            >>> print(f"Server reachable: {result['reachable']}")
+        """
+        import time
+
+        result = {
+            'reachable': False,
+            'response_time': None,
+            'endpoints_available': False,
+            'error': None
+        }
+
+        try:
+            start_time = time.time()
+            response = self.session.get(f"{self.base_url}/entity", timeout=5)
+            result['response_time'] = time.time() - start_time
+
+            if response.status_code == 200:
+                result['reachable'] = True
+                data = response.json()
+                if 'endpoints' in data:
+                    result['endpoints_available'] = True
+                    result['endpoint_count'] = len(data['endpoints'])
+        except Exception as e:
+            result['error'] = str(e)
+
+        return result
+
+    def validate_credentials(self) -> Dict[str, bool]:
+        """
+        Test if current credentials are valid without affecting session.
+
+        Returns:
+            Dictionary with validation results
+
+        Example:
+            >>> result = client.validate_credentials()
+            >>> print(f"Credentials valid: {result['valid']}")
+        """
+        # Save current login state
+        was_logged_in = self._logged_in
+
+        result = {'valid': False, 'error': None}
+
+        try:
+            # Try to login with current credentials
+            if was_logged_in:
+                self.logout()
+
+            self.login()
+            result['valid'] = True
+
+            # Restore original state
+            if not was_logged_in:
+                self.logout()
+
+        except Exception as e:
+            result['error'] = str(e)
+            self._logged_in = was_logged_in
+
+        return result
+
+    def enable_request_history(self, max_items: int = 100) -> None:
+        """
+        Enable request/response history tracking.
+
+        Args:
+            max_items: Maximum number of requests to track
+
+        Example:
+            >>> client.enable_request_history(50)
+            >>> # Make requests...
+            >>> history = client.get_request_history()
+        """
+        self._request_history_enabled = True
+        self._request_history_max = max_items
+        if not hasattr(self, '_request_history'):
+            self._request_history = []
+
+    def disable_request_history(self) -> None:
+        """Disable request/response history tracking."""
+        self._request_history_enabled = False
+
+    def get_request_history(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get request history (if enabled).
+
+        Args:
+            limit: Maximum number of entries to return
+
+        Returns:
+            List of request/response details
+
+        Example:
+            >>> history = client.get_request_history(10)
+            >>> for req in history:
+            ...     print(f"{req['method']} {req['endpoint']}: {req['status_code']}")
+        """
+        if not hasattr(self, '_request_history'):
+            return []
+
+        history = self._request_history
+        if limit:
+            history = history[:limit]
+
+        return history
+
+    def clear_request_history(self) -> None:
+        """Clear request history."""
+        if hasattr(self, '_request_history'):
+            self._request_history.clear()
+
+    def get_error_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent error history (requires error tracking to be enabled).
+
+        Args:
+            limit: Maximum number of errors to return
+
+        Returns:
+            List of error details
+
+        Example:
+            >>> errors = client.get_error_history(5)
+            >>> for error in errors:
+            ...     print(f"{error['timestamp']}: {error['message']}")
+        """
+        return getattr(self, '_error_history', [])[:limit]
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        Get overall health status of the client and connection.
+
+        Returns:
+            Dictionary with health metrics
+
+        Example:
+            >>> health = client.get_health_status()
+            >>> print(f"Overall status: {health['status']}")
+        """
+        # Test connection
+        conn_test = self.test_connection()
+
+        # Calculate error rate
+        total_requests = getattr(self, '_total_requests', 0)
+        total_errors = getattr(self, '_total_errors', 0)
+        error_rate = (total_errors / max(1, total_requests)) * 100 if total_requests > 0 else 0
+
+        # Determine overall status
+        if not conn_test['reachable']:
+            status = 'unhealthy'
+        elif error_rate > 50:
+            status = 'degraded'
+        elif error_rate > 10:
+            status = 'warning'
+        else:
+            status = 'healthy'
+
+        return {
+            'status': status,
+            'connection_reachable': conn_test['reachable'],
+            'response_time': conn_test.get('response_time'),
+            'logged_in': self._logged_in,
+            'error_rate_percent': round(error_rate, 2),
+            'total_requests': total_requests,
+            'total_errors': total_errors,
+            'average_response_time': getattr(self, '_avg_response_time', 0),
+            'models_loaded': len(self._model_classes),
+            'services_loaded': len(self._service_instances),
+            'cache_enabled': self.cache_enabled,
+            'last_check': time.time()
+        }
+
+    def get_rate_limit_status(self) -> Dict[str, Any]:
+        """
+        Get current rate limiting status.
+
+        Returns:
+            Dictionary with rate limit information
+
+        Example:
+            >>> status = client.get_rate_limit_status()
+            >>> print(f"Tokens available: {status['tokens_available']}")
+        """
+        with self._rate_limiter._lock:
+            current_time = time.time()
+            time_passed = current_time - self._rate_limiter._last_call_time
+            tokens = min(
+                self._rate_limiter.burst_size,
+                self._rate_limiter._tokens + time_passed * self._rate_limiter.calls_per_second
+            )
+
+            return {
+                'calls_per_second': self._rate_limiter.calls_per_second,
+                'burst_size': self._rate_limiter.burst_size,
+                'tokens_available': round(tokens, 2),
+                'tokens_percent': round((tokens / self._rate_limiter.burst_size) * 100, 2),
+                'wait_time_if_exhausted': round((self._rate_limiter.burst_size - tokens) / self._rate_limiter.calls_per_second, 3),
+                'last_call_time': self._rate_limiter._last_call_time
+            }
+
+    def reset_statistics(self) -> None:
+        """
+        Reset all tracking statistics.
+
+        Example:
+            >>> client.reset_statistics()
+            >>> # Stats are now reset to zero
+        """
+        self._total_requests = 0
+        self._total_errors = 0
+        self._requests_by_method = {}
+        self._requests_by_endpoint = {}
+        self._response_times = []
+        self._avg_response_time = 0
+        self._last_request_time = None
+        self._last_request_info = None
+
+        if hasattr(self, '_error_history'):
+            self._error_history.clear()
+
+        if hasattr(self, '_request_history'):
+            self._request_history.clear()
+
     def clear_cache(self) -> None:
         """
         Clear all cached data (both memory and disk).
-        
+
         Example:
             >>> client.clear_cache()
             >>> print("Cache cleared")
@@ -1703,9 +2083,8 @@ class AcumaticaClient:
                 import shutil
                 shutil.rmtree(self.cache_dir)
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
-                logger.info("Disk cache cleared")
             except Exception as e:
-                logger.warning(f"Failed to clear disk cache: {e}")
+                pass  # Failed to clear disk cache
         
         # Reset counters
         self._cache_hits = 0
@@ -1976,17 +2355,15 @@ Monitoring:
         Authenticates and obtains a cookie-based session.
         
         Returns:
-            HTTP status code (200 for success, 204 if already logged in)
+            HTTP status code (204 for success, or if already logged in)
             
         Raises:
             AcumaticaAuthError: If authentication fails
         """
         if self._logged_in:
-            logger.debug("Already logged in")
-            return 204
+            return 204  # Already logged in
         
         url = f"{self.base_url}/entity/auth/login"
-        logger.info(f"Attempting login for user '{self.username}' on tenant '{self.tenant}'")
         
         try:
             response = self.session.post(
@@ -2001,11 +2378,9 @@ Monitoring:
             
             response.raise_for_status()
             self._logged_in = True
-            logger.info("Login successful")
             return response.status_code
             
         except requests.RequestException as e:
-            logger.error(f"Login failed: {e}")
             raise AcumaticaAuthError(f"Login failed: {e}")
 
     def logout(self) -> int:
@@ -2016,21 +2391,17 @@ Monitoring:
             HTTP status code (204 for success or already logged out)
         """
         if not self._logged_in:
-            logger.debug("Already logged out")
-            return 204
+            return 204  # Already logged out
         
         url = f"{self.base_url}/entity/auth/logout"
-        logger.info("Logging out")
         
         try:
             response = self.session.post(url, verify=self.verify_ssl, timeout=self.timeout)
             self.session.cookies.clear()
             self._logged_in = False
-            logger.info("Logout successful")
             return response.status_code
             
         except Exception as e:
-            logger.warning(f"Logout encountered an error: {e}")
             # Still mark as logged out
             self._logged_in = False
             self.session.cookies.clear()
@@ -2039,37 +2410,41 @@ Monitoring:
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
         The central method for making all API requests with rate limiting.
-        
+
         Args:
             method: HTTP method
             url: Request URL
             **kwargs: Additional arguments for requests
-            
+
         Returns:
             Response object
-            
+
         Raises:
             AcumaticaError: If request fails
         """
+        import time
+        start_time = time.time()
+
+        # Track request for statistics
+        if not hasattr(self, '_total_requests'):
+            self._total_requests = 0
+            self._total_errors = 0
+            self._requests_by_method = {}
+            self._requests_by_endpoint = {}
+            self._response_times = []
+
         # Apply rate limiting by calling the rate limiter directly
         with self._rate_limiter._lock:
             current_time = time.time()
-            
-            # Calculate tokens accumulated since last call
             time_passed = current_time - self._rate_limiter._last_call_time
             self._rate_limiter._tokens = min(
                 self._rate_limiter.burst_size,
                 self._rate_limiter._tokens + time_passed * self._rate_limiter.calls_per_second
             )
-            
-            # Check if we have tokens available
             if self._rate_limiter._tokens < 1.0:
                 sleep_time = (1.0 - self._rate_limiter._tokens) / self._rate_limiter.calls_per_second
-                logger.debug(f"Rate limit reached, sleeping for {sleep_time:.3f}s")
                 time.sleep(sleep_time)
                 self._rate_limiter._tokens = 1.0
-            
-            # Consume one token
             self._rate_limiter._tokens -= 1.0
             self._rate_limiter._last_call_time = time.time()
         
@@ -2077,29 +2452,136 @@ Monitoring:
         kwargs.setdefault('timeout', self.timeout)
         kwargs.setdefault('verify', self.verify_ssl)
         
-        # For non-persistent mode, ensure we are logged in
-        if not self.persistent_login and not self._logged_in:
-            self.login()
-        
         try:
-            logger.debug(f"{method.upper()} {url}")
-            resp = self.session.request(method, url, **kwargs)
+            # For non-persistent mode, ensure we are logged in
+            if not self.persistent_login and not self._logged_in:
+                self.login()
             
+            resp = self.session.request(method, url, **kwargs)
+
             # Handle session timeout with retry
             if resp.status_code == 401 and self.retry_on_idle_logout and self._logged_in:
-                logger.info("Session expired, re-authenticating...")
                 self._logged_in = False
                 self.login()
                 resp = self.session.request(method, url, **kwargs)
+
+            response_time = time.time() - start_time
+
+            # Check for HTTP errors and track accordingly
+            if not resp.ok:
+                # Create a generic error to pass to the tracker.
+                # The actual exception raised to the user will be more specific.
+                error_obj = AcumaticaError(f"HTTP Error {resp.status_code}")
+                self._track_request(method, url, resp.status_code, response_time, error_obj)
+                
+                # Now, raise the detailed, specific exception for the user.
+                _raise_with_detail(resp)
             
-            # Check for errors
-            _raise_with_detail(resp)
+            # If we get here, the request was successful
+            self._track_request(method, url, resp.status_code, response_time, None)
             return resp
-            
+
+        except requests.RequestException as e:
+            # Handles network-level errors (e.g., DNS, connection refused)
+            response_time = time.time() - start_time
+            status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+            self._track_request(method, url, status_code, response_time, e)
+            raise
+
         finally:
             # For non-persistent mode, log out after request
             if not self.persistent_login and self._logged_in:
                 self.logout()
+
+    def _track_request(self, method: str, url: str, status_code: Optional[int], response_time: float, error: Optional[Exception]) -> None:
+        """Track request for statistics and history."""
+        import time
+        from urllib.parse import urlparse
+
+        # Update basic counters
+        self._total_requests += 1
+        if error:
+            self._total_errors += 1
+
+        # Track by method
+        method_upper = method.upper()
+        self._requests_by_method[method_upper] = self._requests_by_method.get(method_upper, 0) + 1
+
+        # Track by endpoint
+        parsed = urlparse(url)
+        path_parts = parsed.path.split('/')
+        if 'entity' in path_parts:
+            idx = path_parts.index('entity')
+            if idx + 3 < len(path_parts):
+                endpoint = path_parts[idx + 3]  # Get entity name
+                self._requests_by_endpoint[endpoint] = self._requests_by_endpoint.get(endpoint, 0) + 1
+
+        # Track response times
+        self._response_times.append(response_time)
+        if len(self._response_times) > 100:  # Keep only last 100
+            self._response_times.pop(0)
+
+        # Calculate average response time
+        self._avg_response_time = sum(self._response_times) / len(self._response_times)
+        self._last_request_time = time.time()
+
+        # Store last request info
+        self._last_request_info = {
+            'timestamp': time.time(),
+            'method': method_upper,
+            'url': url,
+            'status_code': status_code,
+            'response_time': response_time,
+            'error': str(error) if error else None
+        }
+
+        # Track in request history if enabled
+        if getattr(self, '_request_history_enabled', False):
+            if not hasattr(self, '_request_history'):
+                self._request_history = []
+
+            # Extract endpoint name for easier filtering
+            endpoint_name = None
+            parsed = urlparse(url)
+            path_parts = parsed.path.split('/')
+            if 'entity' in path_parts:
+                idx = path_parts.index('entity')
+                if idx + 3 < len(path_parts):
+                    endpoint_name = path_parts[idx + 3]
+
+            self._request_history.insert(0, {
+                'timestamp': time.time(),
+                'method': method_upper,
+                'url': url,
+                'endpoint': endpoint_name,
+                'status_code': status_code,
+                'response_time': response_time,
+                'error': str(error) if error else None,
+                'success': error is None
+            })
+
+            # Limit history size
+            max_items = getattr(self, '_request_history_max', 100)
+            if len(self._request_history) > max_items:
+                self._request_history = self._request_history[:max_items]
+
+        # Track errors for history
+        if error:
+            if not hasattr(self, '_error_history'):
+                self._error_history = []
+
+            self._error_history.insert(0, {
+                'timestamp': time.time(),
+                'method': method_upper,
+                'url': url,
+                'status_code': status_code,
+                'message': str(error),
+                'response_time': response_time
+            })
+
+            # Keep only last 50 errors
+            if len(self._error_history) > 50:
+                self._error_history = self._error_history[:50]
 
     def close(self) -> None:
         """
@@ -2108,18 +2590,18 @@ Monitoring:
         This method should be called when you're done with the client
         to ensure proper cleanup. It's automatically called on exit.
         """
-        logger.info("Closing AcumaticaClient")
+        # Close AcumaticaClient
         
         try:
             if self._logged_in:
                 self.logout()
         except Exception as e:
-            logger.warning(f"Error during logout: {e}")
+            pass  # Error during logout
         
         try:
             self.session.close()
         except Exception as e:
-            logger.warning(f"Error closing session: {e}")
+            pass  # Error closing session
         
         # Clear caches
         self._schema_cache.clear()
@@ -2149,7 +2631,7 @@ Monitoring:
 
 def _cleanup_all_clients() -> None:
     """Cleanup function called on interpreter shutdown."""
-    logger.info("Cleaning up all active AcumaticaClient instances")
+    # Cleaning up all active AcumaticaClient instances
     
     # Create a list to avoid modifying set during iteration
     clients = list(_active_clients)
@@ -2158,4 +2640,4 @@ def _cleanup_all_clients() -> None:
         try:
             client.close()
         except Exception as e:
-            logger.error(f"Error cleaning up client: {e}")
+            pass  # Error cleaning up client

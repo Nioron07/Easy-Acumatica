@@ -15,19 +15,36 @@ from typing import Any, Dict, Optional, Union
 
 import requests
 
-from .exceptions import AcumaticaConnectionError, AcumaticaError, AcumaticaTimeoutError, parse_api_error
+from .exceptions import (
+    AcumaticaConnectionError,
+    AcumaticaError,
+    AcumaticaTimeoutError,
+    AcumaticaValidationError,
+    parse_api_error,
+    enhance_exception_with_request_context
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _raise_with_detail(resp: requests.Response) -> None:
+def _raise_with_detail(
+    resp: requests.Response,
+    operation: Optional[str] = None,
+    entity: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    request_data: Optional[Dict[str, Any]] = None
+) -> None:
     """
     Raise AcumaticaError with a readable explanation when the HTTP
     status is not 2xx.
-    
+
     Args:
         resp: Response object from requests
-        
+        operation: Operation being performed (e.g., "get_by_id")
+        entity: Entity type (e.g., "Customer")
+        entity_id: Specific entity ID if applicable
+        request_data: Data sent in the request
+
     Raises:
         AcumaticaError: Appropriate subclass based on error type
     """
@@ -35,12 +52,23 @@ def _raise_with_detail(resp: requests.Response) -> None:
     if 200 <= resp.status_code < 300:
         return
 
+    # Extract context from request
+    url = resp.request.url if resp.request else None
+    method = resp.request.method if resp.request else None
+
     # Try to parse error details from response
     try:
         data = resp.json()
         if isinstance(data, dict):
-            # Use the enhanced error parser
-            raise parse_api_error(data, resp.status_code)
+            # Use the enhanced error parser with full context
+            raise parse_api_error(
+                data,
+                resp.status_code,
+                operation=operation or method,
+                entity=entity,
+                entity_id=entity_id,
+                request_data=request_data
+            )
         else:
             # Response is JSON but not a dict (maybe a list or string)
             detail = str(data)
@@ -50,15 +78,37 @@ def _raise_with_detail(resp: requests.Response) -> None:
     except requests.exceptions.RequestException as e:
         # Network or connection error
         if isinstance(e, requests.exceptions.Timeout):
-            raise AcumaticaTimeoutError(f"Request timed out: {e}")
+            raise AcumaticaTimeoutError(
+                f"Request timed out: {e}",
+                operation=operation,
+                entity=entity,
+                entity_id=entity_id
+            )
         elif isinstance(e, requests.exceptions.ConnectionError):
-            raise AcumaticaConnectionError(f"Connection error: {e}")
+            raise AcumaticaConnectionError(
+                f"Connection error: {e}",
+                operation=operation,
+                entity=entity,
+                entity_id=entity_id
+            )
         else:
-            raise AcumaticaConnectionError(f"Request failed: {e}")
+            raise AcumaticaConnectionError(
+                f"Request failed: {e}",
+                operation=operation,
+                entity=entity,
+                entity_id=entity_id
+            )
 
     # If we get here, we couldn't parse a specific error
     msg = f"Acumatica API error {resp.status_code}: {detail}"
-    raise AcumaticaError(msg, status_code=resp.status_code)
+    raise parse_api_error(
+        {"message": detail},
+        resp.status_code,
+        operation=operation or method,
+        entity=entity,
+        entity_id=entity_id,
+        request_data=request_data
+    )
 
 
 def format_api_value(value: Any) -> Dict[str, Any]:
