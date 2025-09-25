@@ -399,6 +399,7 @@ def reset_cache_test_state():
 
 # --- Custom Endpoint Entity Paths ---
 CUSTOM_ENTITY_PATH = f"/entity/Custom/{CUSTOM_ENDPOINT_VERSION}/Test"
+CUSTOM_GI_PATH = f"/entity/{TEST_ENDPOINT_NAME}/{LATEST_DEFAULT_VERSION}/TestCustomGI"
 
 @app.route(f'{CUSTOM_ENTITY_PATH}/<entity_id>', methods=['GET'])
 def get_by_id_custom(entity_id: str):
@@ -408,3 +409,43 @@ def get_by_id_custom(entity_id: str):
         "Name": {"value": "Custom Specific Item"},
         "source": "Custom Endpoint"
     }), 200
+
+@app.route(CUSTOM_GI_PATH, methods=['PUT'])
+def custom_gi_put():
+    """Handles PUT requests for the TestCustomGI Generic Inquiry."""
+    # Simulate a Generic Inquiry response with details array
+    mock_gi_data = {
+        "TestCustomGIDetails": [
+            {
+                "id": "gi-item-1",
+                "rowNumber": 1,
+                "ItemID": {"value": "ITEM001"},
+                "Description": {"value": "Test Item 1"},
+                "QtyOnHand": 10.50,
+                "custom": {}
+            },
+            {
+                "id": "gi-item-2",
+                "rowNumber": 2,
+                "ItemID": {"value": "ITEM002"},
+                "Description": {"value": "Test Item 2"},
+                "QtyOnHand": 25.00,
+                "custom": {}
+            },
+            {
+                "id": "gi-item-3",
+                "rowNumber": 3,
+                "ItemID": {"value": "ITEM003"},
+                "Description": {"value": "Test Item 3"},
+                "QtyOnHand": 5.25,
+                "custom": {}
+            }
+        ]
+    }
+    return jsonify(mock_gi_data), 200
+
+@app.route(CUSTOM_GI_PATH, methods=['GET'])
+def custom_gi_get():
+    """Handles GET requests for the TestCustomGI Generic Inquiry."""
+    # For GI endpoints, GET typically returns the same data as PUT
+    return custom_gi_put()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy_acumatica"
-version = "0.5.2"
+version = "0.5.3"
 description = "Python wrapper for the Acumatica REST API"
 readme = "README.md"
 authors = [{ name="Matthew Hirstius", email="matthew.c.hirstius@gmail.com" }]
@@ -31,6 +31,7 @@ dependencies = [
   "requests>=2.25.1,<3.0.0",
   "aiohttp>=3.8.0,<4.0.0",  # Add this line
   "typing-extensions>=4.0.0;python_version<'3.10'",
+  "croniter>=1.3.0",  # For cron expression parsing in scheduler
 ]
 
 [project.optional-dependencies]
@@ -41,6 +42,9 @@ dev = [
   "requests-mock>=1.9.0",
   "flask>=2.0.0",
   "types-requests",
+]
+scheduler = [
+  "APScheduler>=3.10.0",  # Advanced Python Scheduler for more complex scheduling needs
 ]
 
 [project.urls]

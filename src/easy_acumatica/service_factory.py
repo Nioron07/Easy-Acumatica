@@ -189,8 +189,28 @@ class ServiceFactory:
                 "__init__": lambda s, client, entity_name=tag, endpoint_name=None: BaseService.__init__(s, client, entity_name, endpoint_name)
             })
             service_instance = service_class(self._client, entity_name=tag, endpoint_name=self._client.endpoint_name)
+
+            # Check if this is a custom endpoint (Generic Inquiry) and get metadata
+            is_custom_endpoint = self._is_custom_endpoint(tag, operations)
+            custom_endpoint_metadata = None
+
+            if is_custom_endpoint:
+                # Get the description and custom name for this endpoint
+                description = self._get_tag_description(tag)
+                custom_name = self._get_custom_endpoint_name(description) if description else None
+                custom_endpoint_metadata = {
+                    'is_custom': True,
+                    'description': description,
+                    'custom_name': custom_name
+                }
+                # Store custom metadata on the service instance for the client to use
+                service_instance._custom_endpoint_metadata = custom_endpoint_metadata
+
             for path, http_method, details in operations:
-                self._add_method_to_service(service_instance, path, http_method, details)
+                if is_custom_endpoint:
+                    self._add_custom_endpoint_method(service_instance, path, http_method, details)
+                else:
+                    self._add_method_to_service(service_instance, path, http_method, details)
             services[tag] = service_instance
 
         tag = "Inquiries"
@@ -221,7 +241,154 @@ class ServiceFactory:
             print(f"Could not build methods for Inquiries service: {e}")
 
         return services
-    
+
+    def _get_custom_endpoint_name(self, description: str) -> str:
+        """
+        Generate a readable service attribute name from a Generic Inquiry description.
+
+        Args:
+            description: Description like "PE All Items (GI908032)"
+
+        Returns:
+            Snake_case name like "pe_all_items" or None if not a GI description
+        """
+        # Extract name before (GI...) pattern
+        match = re.search(r'^(.*?)\s*\(GI\d+\)$', description)
+        if match:
+            name_part = match.group(1).strip()
+            # Convert to snake_case by splitting on spaces and word boundaries
+            # First split by spaces, then handle camelCase within each part
+            space_parts = name_part.split()
+            all_words = []
+            for part in space_parts:
+                # Split camelCase/PascalCase parts
+                camel_words = re.findall(r'[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z][a-z]*|[a-z]+|\d+', part)
+                all_words.extend(camel_words)
+            return '_'.join(word.lower() for word in all_words if word)
+        return None
+
+    def _get_tag_description(self, tag: str) -> str:
+        """
+        Get the description for a tag from the schema.
+
+        Args:
+            tag: The tag name to look up
+
+        Returns:
+            Description string or None if not found
+        """
+        if 'tags' in self._schema:
+            for tag_info in self._schema['tags']:
+                if tag_info.get('name') == tag:
+                    return tag_info.get('description', '')
+        return None
+
+    def _is_custom_endpoint(self, tag: str, operations: list) -> bool:
+        """
+        Determines if a service tag represents a custom endpoint (Generic Inquiry).
+
+        Custom endpoints are identified by:
+        1. Having a description that mentions "GI" followed by numbers (e.g., "GI908032")
+        2. Having operations that suggest they're read-only inquiries
+        """
+        # Look for GI pattern in schema tags
+        if 'tags' in self._schema:
+            for tag_info in self._schema['tags']:
+                if tag_info.get('name') == tag:
+                    description = tag_info.get('description', '')
+                    # Check if description contains GI followed by numbers (Generic Inquiry pattern)
+                    if re.search(r'\(GI\d+\)', description):
+                        return True
+
+        # Additional heuristic: if the tag only has GET operations and PUT that might be for querying
+        has_create_update_ops = any(
+            'Post' in details.get('operationId', '') or
+            ('Put' in details.get('operationId', '') and 'Entity' in details.get('operationId', ''))
+            for _, _, details in operations
+        )
+
+        # Custom endpoints typically don't have true creation operations
+        return not has_create_update_ops
+
+    def _add_custom_endpoint_method(self, service: BaseService, path: str, http_method: str, details: Dict[str, Any]):
+        """
+        Creates methods for custom endpoint (Generic Inquiry) operations.
+        For custom endpoints, we modify the PutEntity method to work with the GI query pattern.
+        """
+        operation_id = details.get("operationId", "")
+        if not operation_id or '_' not in operation_id:
+            return
+
+        name_part = operation_id.split('_', 1)[-1]
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name_part)
+        method_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+        method_name = method_name.replace('__', '_')
+
+        # For custom endpoints, we replace put_entity with a special query method
+        if "PutEntity" in operation_id:
+            def query_custom_endpoint(self, data: dict = None, options: QueryOptions | None = None, api_version: str | None = None):
+                """
+                Queries a custom endpoint (Generic Inquiry) using PUT method.
+
+                Args:
+                    data (dict, optional): Query body (typically empty {} for GI queries)
+                    options (QueryOptions, optional): OData query options like $expand, $filter, etc.
+                                                    If None, defaults to $expand=none for full output.
+                    api_version (str, optional): The API version to use for this request.
+
+                Returns:
+                    A dictionary containing the query results.
+                """
+                if data is None:
+                    data = {}
+
+                # For custom endpoints, if no options provided, use $expand=none as per docs
+                if options is None:
+                    from .odata import QueryOptions
+                    options = QueryOptions(expand=['none'])
+
+                return self._put_custom_endpoint(data, options=options, api_version=api_version)
+
+            # Generate docstring
+            docstring = f"""Queries the {service.entity_name} custom endpoint (Generic Inquiry).
+
+    This is a custom endpoint that requires a PUT request to retrieve data from the Generic Inquiry.
+
+    Args:
+        data (dict, optional): Query body, typically empty dict for GI queries. Defaults to {{}}.
+        options (QueryOptions, optional): OData query options like $expand, $filter, $top, etc.
+                                        If None, defaults to $expand=none for full output as per Acumatica docs.
+        api_version (str, optional): The API version to use for this request.
+
+    Returns:
+        A dictionary containing the data from the Generic Inquiry.
+
+    Example:
+        # Query all results with default expand=none
+        results = service.query_custom_endpoint()
+
+        # Query with custom options
+        from easy_acumatica.odata import QueryOptions
+        options = QueryOptions(expand=['PEALLPRODSDetails'], filter="InventoryID ne null", top=100)
+        results = service.query_custom_endpoint(options=options)
+
+        # Query with specific field expansion
+        options = QueryOptions(expand=['Results'])  # or whatever field name your GI uses
+        results = service.query_custom_endpoint(options=options)
+    """
+
+            query_custom_endpoint.__doc__ = textwrap.indent(docstring, '    ')
+            final_method = update_wrapper(query_custom_endpoint, query_custom_endpoint)
+            final_method.__name__ = "query_custom_endpoint"
+            setattr(service, "query_custom_endpoint", final_method.__get__(service, BaseService))
+
+            # Also keep the original put_entity method name for backward compatibility
+            setattr(service, method_name, final_method.__get__(service, BaseService))
+
+        else:
+            # For non-PutEntity operations, use the standard method generation
+            self._add_method_to_service(service, path, http_method, details)
+
     def _fetch_gi_xml(self):
         """
         Fetches the Generic Inquiries XML document and saves it to a .metadata folder inside the package directory.

@@ -245,6 +245,16 @@ def generate_typed_method_signature(
             "        **key_fields: Any",
             f"    ) -> {return_type}:",
         ])
+    elif method_name == 'query_custom_endpoint':
+        # Custom endpoint query method
+        lines.extend([
+            f"    def {method_name}(",
+            "        self,",
+            "        data: Optional[Dict[str, Any]] = None,",
+            "        options: Optional[QueryOptions] = None,",
+            "        api_version: Optional[str] = None",
+            f"    ) -> {return_type}:",
+        ])
     elif method_name == 'put_entity':
         lines.extend([
             f"    def {method_name}(",
@@ -609,7 +619,7 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
     # Get all service attributes from the client
     services = []
     for attr_name in dir(client):
-        if not attr_name.startswith('_') and attr_name not in ['models', 'session', 'base_url', 
+        if not attr_name.startswith('_') and attr_name not in ['models', 'session', 'base_url',
                                                                 'tenant', 'username', 'verify_ssl',
                                                                 'persistent_login', 'retry_on_idle_logout',
                                                                 'endpoint_name', 'endpoint_version',
@@ -617,44 +627,50 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
                                                                 'cache_dir', 'cache_ttl_hours', 'force_rebuild']:
             attr = getattr(client, attr_name)
             if isinstance(attr, BaseService):
-                # Convert attribute name to PascalCase service name
-                # Handle proper English pluralization rules
-                clean_attr_name = attr_name
-                if attr_name.endswith('s') and len(attr_name) > 1:
-                    # Handle special cases and common English pluralization patterns
-                    if attr_name.endswith('ies'):
-                        # companies -> company, categories -> category
-                        clean_attr_name = attr_name[:-3] + 'y'
-                    elif attr_name.endswith('ses') or attr_name.endswith('xes') or attr_name.endswith('ches') or attr_name.endswith('shes'):
-                        # addresses -> address, boxes -> box, batches -> batch, dishes -> dish
-                        # but warehouses -> warehouse (keep the 'e')
-                        if attr_name.endswith('houses'):
-                            clean_attr_name = attr_name[:-1]  # Remove just the 's'
-                        else:
-                            clean_attr_name = attr_name[:-2]
-                    elif attr_name.endswith('ves'):
-                        # leaves -> leaf, knives -> knife
-                        clean_attr_name = attr_name[:-3] + 'f'
-                    elif not any(attr_name.endswith(suffix) for suffix in ['ss', 'us', 'is', 'as', 'class']):
-                        # Regular plural (orders -> order), but keep words naturally ending in s (class, address, etc.)
-                        # Check if removing 's' creates a valid word by looking at common patterns
-                        potential_singular = attr_name[:-1]
-                        # If the word without 's' ends in these patterns, it's likely a regular plural
-                        if (potential_singular.endswith('_account') or 
-                            potential_singular.endswith('_item') or 
-                            potential_singular.endswith('_order') or
-                            potential_singular.endswith('_contact') or
-                            potential_singular.endswith('_customer') or
-                            potential_singular.endswith('_vendor') or
-                            potential_singular.endswith('_employee') or
-                            '_' in potential_singular):  # Most compound words are regular plurals
-                            clean_attr_name = potential_singular
-                        # Special handling for common word endings that might be naturally singular
-                        elif not any(potential_singular.endswith(ending) for ending in ['addres', 'clas', 'proces', 'acces']):
-                            clean_attr_name = potential_singular
-                
-                parts = clean_attr_name.split('_')
-                service_name = ''.join(part.title() for part in parts)
+                # For custom endpoints, use the entity name directly as the service name
+                # Otherwise, convert attribute name to PascalCase service name
+                if hasattr(attr, '_custom_endpoint_metadata') and attr._custom_endpoint_metadata:
+                    # For custom endpoints, use the entity name as the service name
+                    service_name = attr.entity_name
+                else:
+                    # Handle proper English pluralization rules for regular services
+                    clean_attr_name = attr_name
+                    if attr_name.endswith('s') and len(attr_name) > 1:
+                        # Handle special cases and common English pluralization patterns
+                        if attr_name.endswith('ies'):
+                            # companies -> company, categories -> category
+                            clean_attr_name = attr_name[:-3] + 'y'
+                        elif attr_name.endswith('ses') or attr_name.endswith('xes') or attr_name.endswith('ches') or attr_name.endswith('shes'):
+                            # addresses -> address, boxes -> box, batches -> batch, dishes -> dish
+                            # but warehouses -> warehouse (keep the 'e')
+                            if attr_name.endswith('houses'):
+                                clean_attr_name = attr_name[:-1]  # Remove just the 's'
+                            else:
+                                clean_attr_name = attr_name[:-2]
+                        elif attr_name.endswith('ves'):
+                            # leaves -> leaf, knives -> knife
+                            clean_attr_name = attr_name[:-3] + 'f'
+                        elif not any(attr_name.endswith(suffix) for suffix in ['ss', 'us', 'is', 'as', 'class']):
+                            # Regular plural (orders -> order), but keep words naturally ending in s (class, address, etc.)
+                            # Check if removing 's' creates a valid word by looking at common patterns
+                            potential_singular = attr_name[:-1]
+                            # If the word without 's' ends in these patterns, it's likely a regular plural
+                            if (potential_singular.endswith('_account') or
+                                potential_singular.endswith('_item') or
+                                potential_singular.endswith('_order') or
+                                potential_singular.endswith('_contact') or
+                                potential_singular.endswith('_customer') or
+                                potential_singular.endswith('_vendor') or
+                                potential_singular.endswith('_employee') or
+                                '_' in potential_singular):  # Most compound words are regular plurals
+                                clean_attr_name = potential_singular
+                            # Special handling for common word endings that might be naturally singular
+                            elif not any(potential_singular.endswith(ending) for ending in ['addres', 'clas', 'proces', 'acces']):
+                                clean_attr_name = potential_singular
+
+                    parts = clean_attr_name.split('_')
+                    service_name = ''.join(part.title() for part in parts)
+
                 services.append((service_name, attr_name, attr))
     
     # Generate service class stubs with proper typing

@@ -385,3 +385,131 @@ def test_return_type_extraction():
     assert return_type == "None", f"Expected None, got {return_type}"
 
     print("✅ Return type extraction test passed!")
+
+
+def test_custom_endpoint_naming():
+    """Test that custom endpoint names are extracted correctly from descriptions."""
+    from easy_acumatica.service_factory import ServiceFactory
+
+    # Create a mock client and schema
+    mock_client = MagicMock()
+    mock_schema = {
+        'tags': [
+            {
+                'name': 'TestCustomGI',
+                'description': 'Test Custom Generic Inquiry (GI123456)'
+            },
+            {
+                'name': 'Test',
+                'description': 'Test Entity (AR303000)'  # Regular entity
+            },
+            {
+                'name': 'RegularEntity',
+                'description': 'Regular Entity (EN001234)'  # Not a GI
+            }
+        ]
+    }
+
+    factory = ServiceFactory(mock_client, mock_schema)
+
+    # Test GI name extraction
+    gi_name1 = factory._get_custom_endpoint_name('Test Custom Generic Inquiry (GI123456)')
+    assert gi_name1 == 'test_custom_generic_inquiry', f"Expected 'test_custom_generic_inquiry', got '{gi_name1}'"
+
+    # Test non-GI description returns None
+    non_gi = factory._get_custom_endpoint_name('Regular Entity (EN001234)')
+    assert non_gi is None, f"Expected None for non-GI, got '{non_gi}'"
+
+    # Test edge cases
+    edge_case = factory._get_custom_endpoint_name('Single Word (GI999999)')
+    assert edge_case == 'single_word', f"Expected 'single_word', got '{edge_case}'"
+
+    # Test acronym handling
+    acronym_case = factory._get_custom_endpoint_name('ABC All Items (GI908032)')
+    assert acronym_case == 'abc_all_items', f"Expected 'abc_all_items', got '{acronym_case}'"
+
+    print("✅ Custom endpoint naming test passed!")
+
+
+def test_custom_endpoint_detection():
+    """Test that custom endpoints (Generic Inquiries) are detected correctly."""
+    from easy_acumatica.service_factory import ServiceFactory
+
+    # Create a mock client and schema
+    mock_client = MagicMock()
+    mock_schema = {
+        'tags': [
+            {
+                'name': 'TestCustomGI',
+                'description': 'Test Custom Generic Inquiry (GI123456)'
+            },
+            {
+                'name': 'Test',
+                'description': 'Test Entity (AR303000)'  # Regular screen
+            }
+        ]
+    }
+
+    factory = ServiceFactory(mock_client, mock_schema)
+
+    # Test GI detection with realistic operations
+    custom_gi_operations = [
+        ('/TestCustomGI', 'put', {'operationId': 'TestCustomGI_PutEntity'}),
+        ('/TestCustomGI', 'get', {'operationId': 'TestCustomGI_GetList'})
+    ]
+    regular_entity_operations = [
+        ('/Test', 'get', {'operationId': 'Test_GetList'}),
+        ('/Test', 'post', {'operationId': 'Test_PostEntity'}),  # This makes it a regular entity
+        ('/Test/{id}', 'get', {'operationId': 'Test_GetById'})
+    ]
+
+    is_custom_gi = factory._is_custom_endpoint('TestCustomGI', custom_gi_operations)
+    assert is_custom_gi == True, "TestCustomGI should be detected as custom endpoint"
+
+    is_custom_regular = factory._is_custom_endpoint('Test', regular_entity_operations)
+    assert is_custom_regular == False, "Test should not be detected as custom endpoint"
+
+    print("✅ Custom endpoint detection test passed!")
+
+
+def test_custom_endpoint_integration(live_server_url):
+    """Integration test for custom endpoint functionality with real client."""
+    from easy_acumatica import AcumaticaClient
+
+    # Create client with the mock server
+    client = AcumaticaClient(
+        base_url=live_server_url,
+        username='test_user',
+        password='test_password',
+        tenant='test_tenant',
+        cache_methods=False
+    )
+
+    # Test that custom endpoint is available with correct naming
+    service_info = client.get_service_info('TestCustomGI')
+    expected_attr = 'test_custom_generic_inquiry'
+    actual_attr = service_info['client_attribute']
+    assert actual_attr == expected_attr, f"Expected '{expected_attr}', got '{actual_attr}'"
+
+    # Test that the service is accessible via the new attribute name
+    assert hasattr(client, expected_attr), f"Client should have {expected_attr} attribute"
+
+    # Test the custom endpoint functionality
+    service = getattr(client, 'test_custom_generic_inquiry')
+    assert hasattr(service, 'query_custom_endpoint'), "Service should have query_custom_endpoint method"
+    assert hasattr(service, 'put_entity'), "Service should still have put_entity method for backward compatibility"
+
+    # Test querying the custom endpoint
+    from easy_acumatica.odata import QueryOptions
+    result = service.query_custom_endpoint(options=QueryOptions(expand=['TestCustomGIDetails'], top=2))
+
+    assert 'TestCustomGIDetails' in result, "Result should contain TestCustomGIDetails"
+    assert len(result['TestCustomGIDetails']) >= 2, "Should return at least 2 items"
+
+    # Test that items have expected structure
+    item = result['TestCustomGIDetails'][0]
+    assert 'id' in item, "Item should have id field"
+    assert 'rowNumber' in item, "Item should have rowNumber field"
+    assert 'ItemID' in item, "Item should have ItemID field"
+
+    print("✅ Custom endpoint integration test passed!")

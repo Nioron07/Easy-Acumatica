@@ -145,8 +145,57 @@ def get_swagger_json():
                     "parameters": [{"$ref": "#/components/parameters/ids"}, {"$ref": "#/components/parameters/filename"}],
                     "responses": {"204": {"description": "File attached"}}
                 }
+            },
+            "/TestCustomGI": {
+                "put": {
+                    "tags": ["TestCustomGI"],
+                    "operationId": "TestCustomGI_PutEntity",
+                    "summary": "Queries the TestCustomGI generic inquiry.",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"type": "object"}
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/TestCustomGI"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "get": {
+                    "tags": ["TestCustomGI"],
+                    "operationId": "TestCustomGI_GetList",
+                    "summary": "Retrieves TestCustomGI generic inquiry results.",
+                    "responses": {
+                        "200": {
+                            "description": "Success",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/TestCustomGI"}
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
+        "tags": [
+            {
+                "name": "Test",
+                "description": "Test Entity (AR303000)"
+            },
+            {
+                "name": "TestCustomGI",
+                "description": "Test Custom Generic Inquiry (GI123456)"
+            }
+        ],
         "components": {
             "parameters": {
                 "ids": {"name": "ids", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -192,6 +241,25 @@ def get_swagger_json():
                 "StringValue": {"type": "object", "properties": {"value": {"type": "string"}}},
                 "GuidValue": {"type": "object", "properties": {"value": {"type": "string", "format": "uuid"}}},
                 "BooleanValue": {"type": "object", "properties": {"value": {"type": "boolean"}}},
+                "TestCustomGI": {
+                    "type": "object",
+                    "properties": {
+                        "TestCustomGIDetails": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "format": "uuid"},
+                                    "rowNumber": {"type": "integer"},
+                                    "ItemID": {"$ref": "#/components/schemas/StringValue"},
+                                    "Description": {"$ref": "#/components/schemas/StringValue"},
+                                    "QtyOnHand": {"type": "number", "format": "decimal"},
+                                    "custom": {"type": "object"}
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
     }

@@ -79,6 +79,7 @@ from .service_factory import ServiceFactory
 from .core import BatchMethodWrapper
 from .utils import RateLimiter, retry_on_error, validate_entity_id
 from .core import BaseDataClassModel, BaseService
+from .scheduler import TaskScheduler
 
 __all__ = ["AcumaticaClient"]
 
@@ -397,6 +398,9 @@ class AcumaticaClient:
         self.username: str = username
         self.verify_ssl: bool = verify_ssl
         self.persistent_login: bool = persistent_login
+
+        # Scheduler instance (created on demand)
+        self._scheduler: Optional[TaskScheduler] = None
         self.retry_on_idle_logout: bool = retry_on_idle_logout
         self.endpoint_name: str = endpoint_name
         self.endpoint_version: Optional[str] = endpoint_version
@@ -1239,21 +1243,30 @@ class AcumaticaClient:
         for service_name in service_names:
             if service_name in all_services:
                 service_instance = all_services[service_name]
-                # Convert PascalCase to snake_case
-                snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
-                # Handle pluralization properly
-                if service_name == 'Inquiries' or snake_case.endswith('ies'):
-                    attr_name = snake_case
-                elif snake_case.endswith('inquiry'):
-                    # inquiry -> inquiries
-                    attr_name = snake_case[:-1] + 'ies'
-                elif snake_case.endswith('class'):
-                    # class -> classes
-                    attr_name = snake_case + 'es'
-                elif not snake_case.endswith('s'):
-                    attr_name = snake_case + 's'
+                # Check if this is a custom endpoint with custom naming
+                if hasattr(service_instance, '_custom_endpoint_metadata') and service_instance._custom_endpoint_metadata:
+                    metadata = service_instance._custom_endpoint_metadata
+                    if metadata['custom_name']:
+                        attr_name = metadata['custom_name']
+                    else:
+                        # Fallback to default naming if custom name couldn't be generated
+                        attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
                 else:
-                    attr_name = snake_case
+                    # Convert PascalCase to snake_case for regular endpoints
+                    snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
+                    # Handle pluralization properly
+                    if service_name == 'Inquiries' or snake_case.endswith('ies'):
+                        attr_name = snake_case
+                    elif snake_case.endswith('inquiry'):
+                        # inquiry -> inquiries
+                        attr_name = snake_case[:-1] + 'ies'
+                    elif snake_case.endswith('class'):
+                        # class -> classes
+                        attr_name = snake_case + 'es'
+                    elif not snake_case.endswith('s'):
+                        attr_name = snake_case + 's'
+                    else:
+                        attr_name = snake_case
                 setattr(self, attr_name, service_instance)
                 self._available_services.add(service_name)
                 self._service_instances[service_name] = service_instance
@@ -1324,7 +1337,28 @@ class AcumaticaClient:
 
     def _remove_service(self, service_name: str) -> None:
         """Remove a service from the client."""
-        attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+        # Find the actual attribute name by checking if it's a custom endpoint
+        service_instance = self._service_instances.get(service_name)
+        if service_instance and hasattr(service_instance, '_custom_endpoint_metadata') and service_instance._custom_endpoint_metadata:
+            metadata = service_instance._custom_endpoint_metadata
+            if metadata['custom_name']:
+                attr_name = metadata['custom_name']
+            else:
+                attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+        else:
+            # Regular service naming
+            snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
+            if service_name == 'Inquiries' or snake_case.endswith('ies'):
+                attr_name = snake_case
+            elif snake_case.endswith('inquiry'):
+                attr_name = snake_case[:-1] + 'ies'
+            elif snake_case.endswith('class'):
+                attr_name = snake_case + 'es'
+            elif not snake_case.endswith('s'):
+                attr_name = snake_case + 's'
+            else:
+                attr_name = snake_case
+
         if hasattr(self, attr_name):
             delattr(self, attr_name)
         self._available_services.discard(service_name)
@@ -1471,21 +1505,30 @@ class AcumaticaClient:
             services_dict = factory.build_services()
             
             for name, service_instance in services_dict.items():
-                # Convert PascalCase to snake_case
-                snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_')
-                # Handle pluralization properly
-                if name == 'Inquiries' or snake_case.endswith('ies'):
-                    attr_name = snake_case
-                elif snake_case.endswith('inquiry'):
-                    # inquiry -> inquiries
-                    attr_name = snake_case[:-1] + 'ies'
-                elif snake_case.endswith('class'):
-                    # class -> classes
-                    attr_name = snake_case + 'es'
-                elif not snake_case.endswith('s'):
-                    attr_name = snake_case + 's'
+                # Check if this is a custom endpoint with custom naming
+                if hasattr(service_instance, '_custom_endpoint_metadata') and service_instance._custom_endpoint_metadata:
+                    metadata = service_instance._custom_endpoint_metadata
+                    if metadata['custom_name']:
+                        attr_name = metadata['custom_name']
+                    else:
+                        # Fallback to default naming if custom name couldn't be generated
+                        attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_') + 's'
                 else:
-                    attr_name = snake_case
+                    # Convert PascalCase to snake_case for regular endpoints
+                    snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_')
+                    # Handle pluralization properly
+                    if name == 'Inquiries' or snake_case.endswith('ies'):
+                        attr_name = snake_case
+                    elif snake_case.endswith('inquiry'):
+                        # inquiry -> inquiries
+                        attr_name = snake_case[:-1] + 'ies'
+                    elif snake_case.endswith('class'):
+                        # class -> classes
+                        attr_name = snake_case + 'es'
+                    elif not snake_case.endswith('s'):
+                        attr_name = snake_case + 's'
+                    else:
+                        attr_name = snake_case
                 
                 # Add batch support to all service methods
                 self._add_batch_support_to_service(service_instance)
@@ -1625,13 +1668,34 @@ class AcumaticaClient:
                     'signature': str(getattr(method, '__annotations__', {}))
                 })
         
+        # Determine client attribute name (same logic as in _build_dynamic_services)
+        if hasattr(service, '_custom_endpoint_metadata') and service._custom_endpoint_metadata:
+            metadata = service._custom_endpoint_metadata
+            if metadata['custom_name']:
+                client_attribute = metadata['custom_name']
+            else:
+                client_attribute = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+        else:
+            # Regular service naming logic
+            snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
+            if service_name == 'Inquiries' or snake_case.endswith('ies'):
+                client_attribute = snake_case
+            elif snake_case.endswith('inquiry'):
+                client_attribute = snake_case[:-1] + 'ies'
+            elif snake_case.endswith('class'):
+                client_attribute = snake_case + 'es'
+            elif not snake_case.endswith('s'):
+                client_attribute = snake_case + 's'
+            else:
+                client_attribute = snake_case
+
         return {
             'name': service_name,
             'entity_name': service.entity_name,
             'endpoint_name': getattr(service, 'endpoint_name', 'Default'),
             'methods': methods,
             'method_count': len(methods),
-            'client_attribute': ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+            'client_attribute': client_attribute
         }
 
     def search_models(self, pattern: str) -> List[str]:
@@ -2383,6 +2447,13 @@ Monitoring:
         except requests.RequestException as e:
             raise AcumaticaAuthError(f"Login failed: {e}")
 
+    @property
+    def scheduler(self) -> TaskScheduler:
+        """Get or create the task scheduler for this client."""
+        if self._scheduler is None:
+            self._scheduler = TaskScheduler(client=self)
+        return self._scheduler
+
     def logout(self) -> int:
         """
         Logs out and invalidates the server-side session.
@@ -2396,12 +2467,20 @@ Monitoring:
         url = f"{self.base_url}/entity/auth/logout"
         
         try:
+            # Stop scheduler if running
+            if self._scheduler and self._scheduler._running:
+                self._scheduler.stop(wait=True, timeout=5)
+
             response = self.session.post(url, verify=self.verify_ssl, timeout=self.timeout)
             self.session.cookies.clear()
             self._logged_in = False
             return response.status_code
-            
+
         except Exception as e:
+            # Stop scheduler if running
+            if self._scheduler and self._scheduler._running:
+                self._scheduler.stop(wait=True, timeout=5)
+
             # Still mark as logged out
             self._logged_in = False
             self.session.cookies.clear()

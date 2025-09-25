@@ -227,6 +227,23 @@ class BaseService:
         
         params = options.to_params() if options else None
         return self._request("get", url, params=params)
+
+    def _put_custom_endpoint(
+        self,
+        data: dict,
+        options: QueryOptions | None = None,
+        api_version: Optional[str] = None
+    ) -> Any:
+        """
+        Performs a PUT request for custom endpoints (Generic Inquiries).
+
+        Custom endpoints require a PUT request with an empty body and $expand=Results
+        to retrieve the inquiry data.
+        """
+        url = self._get_url(api_version)
+        params = options.to_params() if options else None
+
+        return self._request("put", url, params=params, json=data)
     
     def _put(
         self,
