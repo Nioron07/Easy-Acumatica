@@ -214,7 +214,7 @@ class OnceSchedule(Schedule):
 class DailySchedule(Schedule):
     """Schedule that runs daily at specific time(s)."""
 
-    def __init__(self, hour: int, minute: int = 0, second: int = 0):
+    def __init__(self, hour: int, minute: int = 0, second: int = 0, run_immediately: bool = False):
         """
         Initialize daily schedule.
 
@@ -222,6 +222,7 @@ class DailySchedule(Schedule):
             hour: Hour of day (0-23)
             minute: Minute of hour (0-59)
             second: Second of minute (0-59)
+            run_immediately: If True, run immediately on first check when no last_run
         """
         if not 0 <= hour <= 23:
             raise ValueError("Hour must be between 0 and 23")
@@ -233,6 +234,7 @@ class DailySchedule(Schedule):
         self.hour = hour
         self.minute = minute
         self.second = second
+        self.run_immediately = run_immediately
 
     def get_next_run_time(self, last_run: Optional[datetime] = None) -> Optional[datetime]:
         """Calculate next daily run time."""
@@ -247,6 +249,10 @@ class DailySchedule(Schedule):
 
     def is_due(self, last_run: Optional[datetime] = None) -> bool:
         """Check if it's time for daily run."""
+        # If never run before and run_immediately is set, run immediately
+        if last_run is None and self.run_immediately:
+            return True
+
         now = datetime.now()
         scheduled_time = now.replace(hour=self.hour, minute=self.minute, second=self.second, microsecond=0)
 
@@ -267,7 +273,8 @@ class DailySchedule(Schedule):
             'type': 'daily',
             'hour': self.hour,
             'minute': self.minute,
-            'second': self.second
+            'second': self.second,
+            'run_immediately': self.run_immediately
         }
 
     @classmethod
@@ -276,7 +283,8 @@ class DailySchedule(Schedule):
         return cls(
             hour=data['hour'],
             minute=data.get('minute', 0),
-            second=data.get('second', 0)
+            second=data.get('second', 0),
+            run_immediately=data.get('run_immediately', False)
         )
 
     def __repr__(self) -> str:

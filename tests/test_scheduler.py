@@ -50,9 +50,9 @@ class TestSchedules(unittest.TestCase):
 
     def test_daily_schedule(self):
         """Test daily scheduling."""
-        schedule = DailySchedule(hour=14, minute=30)
+        schedule = DailySchedule(hour=14, minute=30, run_immediately=True)
 
-        # First run should be immediate if never run
+        # First run should be immediate if never run with run_immediately=True
         self.assertTrue(schedule.is_due(None))
 
         # Get next run time

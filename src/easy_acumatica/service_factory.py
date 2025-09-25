@@ -342,11 +342,6 @@ class ServiceFactory:
                 if data is None:
                     data = {}
 
-                # For custom endpoints, if no options provided, use $expand=none as per docs
-                if options is None:
-                    from .odata import QueryOptions
-                    options = QueryOptions(expand=['none'])
-
                 return self._put_custom_endpoint(data, options=options, api_version=api_version)
 
             # Generate docstring
@@ -357,7 +352,6 @@ class ServiceFactory:
     Args:
         data (dict, optional): Query body, typically empty dict for GI queries. Defaults to {{}}.
         options (QueryOptions, optional): OData query options like $expand, $filter, $top, etc.
-                                        If None, defaults to $expand=none for full output as per Acumatica docs.
         api_version (str, optional): The API version to use for this request.
 
     Returns:
