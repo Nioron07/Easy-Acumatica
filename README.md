@@ -283,10 +283,6 @@ Not using Python? Check out the Node.js/TypeScript version:
 - Implement exponential backoff for retries
 - Use batch operations to reduce API call count
 
-## Contributing
-
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
