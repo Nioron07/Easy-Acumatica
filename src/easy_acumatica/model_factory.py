@@ -106,11 +106,123 @@ class ModelFactory:
 
             fields_list.append((prop_name, python_type, field_info))
 
+        # Create helper functions that will be shared by all models
+        def _simplify_type_impl(field_type, visited: set, model_registry: Dict[str, type]) -> Any:
+            """Convert Python type annotation to simple representation."""
+            from typing import get_origin, get_args, Union
+            import dataclasses
+
+            # Handle None type
+            if field_type is type(None):
+                return 'Any'
+
+            # Get origin for generic types (List, Optional, etc.)
+            origin = get_origin(field_type)
+
+            # Handle Optional types
+            if origin is Union:
+                args = get_args(field_type)
+                # Filter out NoneType
+                non_none_args = [arg for arg in args if arg is not type(None)]
+                if len(non_none_args) == 1:
+                    return _simplify_type_impl(non_none_args[0], visited, model_registry)
+                elif len(non_none_args) > 1:
+                    return f"Union[{', '.join(_simplify_type_impl(arg, visited, model_registry) for arg in non_none_args)}]"
+
+            # Handle List types
+            if origin is list:
+                args = get_args(field_type)
+                if args:
+                    item_type = _simplify_type_impl(args[0], visited, model_registry)
+                    # If it's a dict (nested model), return as a list with one example
+                    if isinstance(item_type, dict):
+                        return [item_type]
+                    else:
+                        return [item_type]
+                return ['Any']
+
+            # Handle dataclass models
+            if dataclasses.is_dataclass(field_type):
+                class_name = field_type.__name__
+                # Prevent circular references
+                if class_name in visited:
+                    return f"(circular: {class_name})"
+                visited.add(class_name)
+                result = _get_simple_schema_impl(field_type, visited, model_registry)
+                visited.discard(class_name)
+                return result
+
+            # Handle primitive types
+            if hasattr(field_type, '__name__'):
+                type_name = field_type.__name__
+                if type_name in ('str', 'int', 'float', 'bool', 'datetime'):
+                    return type_name
+
+            # Default for unknown types
+            return 'Any'
+
+        def _get_simple_schema_impl(model_class: type, visited: set, model_registry: Dict[str, type]) -> Dict[str, Any]:
+            """Extract simplified schema from dataclass, recursively expanding nested models."""
+            if visited is None:
+                visited = set()
+
+            simple_schema = {}
+
+            if hasattr(model_class, '__annotations__'):
+                for field_name, field_type in model_class.__annotations__.items():
+                    simplified = _simplify_type_impl(field_type, visited, model_registry)
+
+                    # Special case: if type resolved to Any but field name matches a known model,
+                    # try to expand that model (e.g., Contact field in CustomerContact)
+                    if simplified == 'Any' and field_name in model_registry:
+                        if field_name not in visited:
+                            visited.add(field_name)
+                            simplified = _get_simple_schema_impl(model_registry[field_name], visited, model_registry)
+                            visited.discard(field_name)
+
+                    simple_schema[field_name] = simplified
+
+            return simple_schema
+
+        # Create get_schema classmethod
+        @classmethod
+        def get_schema(cls) -> Dict[str, Any]:
+            """
+            Get the schema for this model showing Python types.
+
+            Returns a simplified, recursively expanded schema.
+            Nested models are expanded as dictionaries, arrays are shown as lists.
+
+            Returns:
+                Dictionary mapping field names to types:
+                - Primitives: 'str', 'int', 'bool', 'float', 'datetime'
+                - Nested models: {'field1': 'type1', 'field2': 'type2', ...}
+                - Arrays: [{'field1': 'type1', ...}]
+
+            Example:
+                >>> schema = Customer.get_schema()
+                >>> # Returns: {
+                >>> #   'CustomerID': 'str',
+                >>> #   'CustomerName': 'str',
+                >>> #   'BillingContact': {
+                >>> #     'Email': 'str',
+                >>> #     'DisplayName': 'str',
+                >>> #     ...
+                >>> #   },
+                >>> #   ...
+                >>> # }
+            """
+            return _get_simple_schema_impl(cls, set(), cls._model_registry)
+
         model = make_dataclass(
             name,
             fields=fields_list,
             bases=(BaseDataClassModel,),
-            namespace={'build': BaseDataClassModel.build},
+            namespace={
+                'build': BaseDataClassModel.build,
+                'get_schema': get_schema,
+                '_model_registry': self._models  # Store reference to all models
+            },
             frozen=False
         )
         model.__module__ = 'easy_acumatica.models'

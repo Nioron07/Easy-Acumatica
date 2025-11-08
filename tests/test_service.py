@@ -209,3 +209,25 @@ def test_xml_metadata_parsing(client):
         assert method.__doc__ is not None, f"Method {method_name} should have a docstring"
 
 # All inquiry service tests should now pass!
+
+# --- INTROSPECTION METHODS TESTS ---
+
+def test_get_signature_basic(client):
+    """Test service.get_signature returns correct Python signature string."""
+    # Get signature for get_list method from Test service
+    sig = client.tests.get_signature('get_list')
+
+    # Verify it's a string
+    assert isinstance(sig, str)
+    # Should contain the service and method name
+    assert 'test' in sig.lower()
+    assert 'get_list' in sig
+
+    print(f"\n✅ service.get_signature returned: {sig}")
+
+def test_get_signature_invalid_method(client):
+    """Test service.get_signature raises ValueError for non-existent method."""
+    with pytest.raises(ValueError, match="Method 'invalid_method' not found"):
+        client.tests.get_signature('invalid_method')
+
+    print("\n✅ service.get_signature correctly raised ValueError for invalid method")

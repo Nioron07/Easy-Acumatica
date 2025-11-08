@@ -215,10 +215,46 @@ def get_swagger_json():
                                 "files": {
                                     "type": "array",
                                     "items": {"$ref": "#/components/schemas/FileLink"}
+                                },
+                                "Owner": {"$ref": "#/components/schemas/TestContact"},
+                                "RelatedItems": {
+                                    "type": "array",
+                                    "items": {"$ref": "#/components/schemas/TestRelatedItem"}
                                 }
                             },
                         },
                     ]
+                },
+                "TestContact": {
+                    "type": "object",
+                    "properties": {
+                        "ContactID": {"type": "integer"},
+                        "DisplayName": {"$ref": "#/components/schemas/StringValue"},
+                        "Email": {"$ref": "#/components/schemas/StringValue"},
+                        "Phone": {"$ref": "#/components/schemas/StringValue"},
+                        "Address": {"$ref": "#/components/schemas/TestAddress"},
+                        "IsActive": {"$ref": "#/components/schemas/BooleanValue"}
+                    }
+                },
+                "TestAddress": {
+                    "type": "object",
+                    "properties": {
+                        "AddressLine1": {"$ref": "#/components/schemas/StringValue"},
+                        "AddressLine2": {"$ref": "#/components/schemas/StringValue"},
+                        "City": {"$ref": "#/components/schemas/StringValue"},
+                        "State": {"$ref": "#/components/schemas/StringValue"},
+                        "PostalCode": {"$ref": "#/components/schemas/StringValue"},
+                        "Country": {"$ref": "#/components/schemas/StringValue"}
+                    }
+                },
+                "TestRelatedItem": {
+                    "type": "object",
+                    "properties": {
+                        "ItemID": {"$ref": "#/components/schemas/StringValue"},
+                        "Description": {"$ref": "#/components/schemas/StringValue"},
+                        "Quantity": {"type": "number", "format": "decimal"},
+                        "RelatedContact": {"$ref": "#/components/schemas/TestContact"}
+                    }
                 },
                 "FileLink": {
                     "type": "object",

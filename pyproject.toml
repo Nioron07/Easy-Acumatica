@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy_acumatica"
-version = "0.5.4"
+version = "0.5.5"
 description = "Python wrapper for the Acumatica REST API"
 readme = "README.md"
 authors = [{ name="Matthew Hirstius", email="matthew.c.hirstius@gmail.com" }]
@@ -22,6 +22,8 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Topic :: Office/Business :: Financial :: Accounting",
   "Typing :: Typed",

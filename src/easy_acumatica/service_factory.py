@@ -185,10 +185,37 @@ class ServiceFactory:
                     tags_to_ops[tag].append((path, http_method, details))
 
         for tag, operations in tags_to_ops.items():
+            # Create get_signature method for this service
+            def create_get_signature_method():
+                def get_signature(self, method_name: str) -> str:
+                    """
+                    Get the Python signature for a method on this service.
+
+                    Args:
+                        method_name: Name of the method (e.g., 'get_list', 'put_entity')
+
+                    Returns:
+                        String representation of the method signature
+
+                    Example:
+                        >>> sig = client.sales_order.get_signature('get_list')
+                        >>> print(sig)
+                        >>> # Output: sales_order.get_list(options: QueryOptions = None, api_version: str = None)
+                    """
+                    if not hasattr(self, '_method_signatures'):
+                        raise ValueError("Method signatures not available for this service")
+                    if method_name not in self._method_signatures:
+                        available = ', '.join(self._method_signatures.keys())
+                        raise ValueError(f"Method '{method_name}' not found. Available methods: {available}")
+                    return self._method_signatures[method_name]
+                return get_signature
+
             service_class = type(f"{tag}Service", (BaseService,), {
-                "__init__": lambda s, client, entity_name=tag, endpoint_name=None: BaseService.__init__(s, client, entity_name, endpoint_name)
+                "__init__": lambda s, client, entity_name=tag, endpoint_name=None: BaseService.__init__(s, client, entity_name, endpoint_name),
+                "get_signature": create_get_signature_method()
             })
             service_instance = service_class(self._client, entity_name=tag, endpoint_name=self._client.endpoint_name)
+            service_instance._method_signatures = {}
 
             # Check if this is a custom endpoint (Generic Inquiry) and get metadata
             is_custom_endpoint = self._is_custom_endpoint(tag, operations)
@@ -535,10 +562,47 @@ class ServiceFactory:
             docstring = _generate_docstring(service.entity_name, operation_id, details)
 
         template.__doc__ = docstring
-        final_method = update_wrapper(template, template)
-        final_method.__name__ = method_name
+        template.__name__ = method_name
 
-        setattr(service, method_name, final_method.__get__(service, BaseService))
+        setattr(service, method_name, template.__get__(service, BaseService))
+
+        # Store the method signature
+        import inspect
+        sig = inspect.signature(template)
+        params = []
+        for param_name, param in sig.parameters.items():
+            if param_name == 'self':
+                continue
+            # Build parameter string with type and default
+            type_str = ''
+            if param.annotation != inspect.Parameter.empty:
+                ann = param.annotation
+                if hasattr(ann, '__name__'):
+                    type_str = f": {ann.__name__}"
+                else:
+                    type_str = f": {str(ann).replace('typing.', '')}"
+
+            if param.default != inspect.Parameter.empty:
+                params.append(f"{param_name}{type_str} = {param.default}")
+            else:
+                params.append(f"{param_name}{type_str}")
+
+        # Get return type
+        return_type = ''
+        if sig.return_annotation != inspect.Signature.empty:
+            ret = sig.return_annotation
+            if hasattr(ret, '__name__'):
+                return_type = f" -> {ret.__name__}"
+            else:
+                return_type = f" -> {str(ret).replace('typing.', '')}"
+
+        # Convert service entity name to snake_case
+        service_snake = ''.join(['_' + c.lower() if c.isupper() else c for c in service.entity_name]).lstrip('_')
+        params_str = ', '.join(params)
+        signature_str = f"{service_snake}.{method_name}({params_str}){return_type}"
+
+        if hasattr(service, '_method_signatures'):
+            service._method_signatures[method_name] = signature_str
 
     def _add_inquiry_method(self, service: BaseService, inquiry_name: str, method_name: str, entity_type: str):
         """

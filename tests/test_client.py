@@ -1009,3 +1009,81 @@ class TestCustomEndpoints:
 
             print("\n Client correctly routed a Generic Inquiry request to the custom endpoint.")
             client.close()
+
+
+class TestIntrospectionMethods:
+    """Test introspection methods for examining generated models."""
+
+    def test_get_model_schema_basic(self, live_server_url):
+        """
+        Test Model.get_schema() returns correct schema information with nested models.
+        """
+        client = AcumaticaClient(
+            base_url=live_server_url,
+            username="test_user",
+            password="test_password",
+            tenant="test_tenant",
+            cache_methods=False
+        )
+
+        # Get schema for TestModel model using the classmethod
+        schema = client.models.TestModel.get_schema()
+
+        # Verify basic structure - should be a dict of field names to types
+        assert isinstance(schema, dict)
+        assert len(schema) > 0
+
+        # Verify primitive fields
+        assert schema['Name'] == 'str'
+        assert schema['IsActive'] == 'bool'
+
+        # Verify nested model expansion - Owner should be a fully expanded TestContact
+        assert 'Owner' in schema
+        assert isinstance(schema['Owner'], dict)
+        assert 'DisplayName' in schema['Owner']
+        assert 'Email' in schema['Owner']
+        assert 'Address' in schema['Owner']
+
+        # Verify doubly-nested model - Address should be fully expanded
+        assert isinstance(schema['Owner']['Address'], dict)
+        assert 'AddressLine1' in schema['Owner']['Address']
+        assert 'City' in schema['Owner']['Address']
+        assert 'State' in schema['Owner']['Address']
+        assert schema['Owner']['Address']['City'] == 'str'
+
+        # Verify array of nested models - RelatedItems
+        assert 'RelatedItems' in schema
+        assert isinstance(schema['RelatedItems'], list)
+        assert len(schema['RelatedItems']) == 1  # Should have one example item
+        assert isinstance(schema['RelatedItems'][0], dict)
+        assert 'ItemID' in schema['RelatedItems'][0]
+        assert 'RelatedContact' in schema['RelatedItems'][0]
+
+        # Verify nested Contact in RelatedItem
+        assert isinstance(schema['RelatedItems'][0]['RelatedContact'], dict)
+        assert 'Email' in schema['RelatedItems'][0]['RelatedContact']
+
+        print(f"\n✅ Model schema correctly expanded with {len(schema)} fields")
+        print(f"   - Owner nested model has {len(schema['Owner'])} fields")
+        print(f"   - Owner.Address nested model has {len(schema['Owner']['Address'])} fields")
+        print(f"   - RelatedItems array contains {len(schema['RelatedItems'][0])} fields per item")
+
+        client.close()
+
+    def test_get_model_schema_invalid_model(self, live_server_url):
+        """
+        Test accessing non-existent model raises AttributeError.
+        """
+        client = AcumaticaClient(
+            base_url=live_server_url,
+            username="test_user",
+            password="test_password",
+            tenant="test_tenant",
+            cache_methods=False
+        )
+
+        with pytest.raises(AttributeError):
+            client.models.NonExistent.get_schema()
+
+        print("\n✅ Accessing non-existent model correctly raised AttributeError")
+        client.close()

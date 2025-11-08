@@ -7,26 +7,19 @@ Provides common functionality like:
 - Retry decorators
 - Rate limiting
 - Input validation
-- Logging utilities
-- Performance monitoring
 """
 
 import functools
 import logging
 import threading
 import time
-import os
-from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
-from weakref import WeakKeyDictionary
+from typing import Any, Callable, List, Optional, TypeVar, Union
 
 import requests
 
 from .exceptions import (
-    AcumaticaError,
     AcumaticaRetryExhaustedError,
-    AcumaticaValidationError,
-    ErrorCode
+    AcumaticaValidationError
 )
 
 logger = logging.getLogger(__name__)
@@ -95,7 +88,7 @@ def retry_on_error(
                 raise last_exception
             raise AcumaticaRetryExhaustedError(
                 f"Unexpected error in retry logic for {getattr(func, '__name__', repr(func))}",
-                attempts=max_retries,
+                attempts=max_attempts,
                 last_error=last_exception
             )
         
@@ -189,7 +182,7 @@ def validate_entity_id(entity_id: Union[str, List[str]]) -> str:
         if not all(isinstance(id, str) for id in entity_id):
             raise AcumaticaValidationError(
                 "All entity IDs must be strings",
-                field_errors={"entity_ids": f"Non-string ID found: {[id for id in entity_ids if not isinstance(id, str)]}"},
+                field_errors={"entity_ids": f"Non-string ID found: {[id for id in entity_id if not isinstance(id, str)]}"},
                 suggestions=["Convert all IDs to strings before passing"]
             )
         # Validate each ID
@@ -217,218 +210,3 @@ def validate_entity_id(entity_id: Union[str, List[str]]) -> str:
         )
 
 
-def sanitize_filename(filename: str) -> str:
-    """
-    Sanitizes a filename for safe use in file operations.
-    
-    Args:
-        filename: Original filename
-        
-    Returns:
-        Sanitized filename safe for file operations
-        
-    Example:
-        >>> sanitize_filename("my<file>name?.txt")
-        'my_file_name_.txt'
-    """
-    import re
-    # Remove or replace unsafe characters
-    safe_name = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    # Remove control characters
-    safe_name = re.sub(r'[\x00-\x1f\x7f]', '', safe_name)
-    # Limit length
-    max_length = 255
-    if len(safe_name) > max_length:
-        name, ext = os.path.splitext(safe_name)
-        safe_name = name[:max_length - len(ext)] + ext
-    return safe_name
-
-
-class PerformanceMonitor:
-    """
-    Context manager for monitoring operation performance.
-    
-    Example:
-        >>> with PerformanceMonitor("API call") as monitor:
-        ...     response = make_api_call()
-        >>> print(f"Operation took {monitor.elapsed:.3f} seconds")
-    """
-    
-    def __init__(self, operation_name: str, logger: Optional[logging.Logger] = None):
-        """
-        Initialize performance monitor.
-        
-        Args:
-            operation_name: Name of the operation being monitored
-            logger: Optional logger for automatic logging
-        """
-        self.operation_name = operation_name
-        self.logger = logger or logging.getLogger(__name__)
-        self.start_time: Optional[float] = None
-        self.end_time: Optional[float] = None
-        self.elapsed: Optional[float] = None
-    
-    def __enter__(self):
-        """Start timing."""
-        self.start_time = time.time()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Stop timing and log results."""
-        self.end_time = time.time()
-        self.elapsed = self.end_time - self.start_time
-        
-        if exc_type is None:
-            self.logger.debug(f"{self.operation_name} completed in {self.elapsed:.3f}s")
-        else:
-            self.logger.warning(
-                f"{self.operation_name} failed after {self.elapsed:.3f}s: {exc_type.__name__}"
-            )
-
-
-def chunk_list(lst: List[Any], chunk_size: int) -> List[List[Any]]:
-    """
-    Split a list into chunks of specified size.
-    
-    Args:
-        lst: List to chunk
-        chunk_size: Maximum size of each chunk
-        
-    Returns:
-        List of chunks
-        
-    Example:
-        >>> chunk_list([1, 2, 3, 4, 5], 2)
-        [[1, 2], [3, 4], [5]]
-    """
-    if chunk_size <= 0:
-        raise AcumaticaValidationError(
-            "Chunk size must be positive",
-            field_errors={"chunk_size": f"Invalid value: {chunk_size}"},
-            suggestions=["Use a positive integer for chunk size"]
-        )
-    return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
-
-
-def format_odata_datetime(dt: datetime) -> str:
-    """
-    Format datetime for OData queries.
-    
-    Args:
-        dt: Datetime object
-        
-    Returns:
-        OData-formatted datetime string
-        
-    Example:
-        >>> format_odata_datetime(datetime(2024, 1, 15, 10, 30, 0))
-        "datetime'2024-01-15T10:30:00'"
-    """
-    return f"datetime'{dt.isoformat()}'"
-
-
-def parse_acumatica_datetime(date_str: str) -> Optional[datetime]:
-    """
-    Parse datetime string from Acumatica API.
-    
-    Args:
-        date_str: Datetime string from API
-        
-    Returns:
-        Parsed datetime or None if invalid
-    """
-    if not date_str:
-        return None
-    
-    # Common Acumatica datetime formats
-    formats = [
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S.%f",
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S.%fZ",
-    ]
-    
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    
-    logger.warning(f"Could not parse datetime: {date_str}")
-    return None
-
-
-class BatchProcessor:
-    """
-    Helper for processing items in batches with progress tracking.
-    
-    Example:
-        >>> processor = BatchProcessor(batch_size=100)
-        >>> for batch in processor.process(large_list):
-        ...     api_client.bulk_update(batch)
-    """
-    
-    def __init__(
-        self,
-        batch_size: int = 100,
-        progress_callback: Optional[Callable[[int, int], None]] = None
-    ):
-        """
-        Initialize batch processor.
-        
-        Args:
-            batch_size: Size of each batch
-            progress_callback: Optional callback(current, total) for progress updates
-        """
-        self.batch_size = batch_size
-        self.progress_callback = progress_callback
-    
-    def process(self, items: List[Any]) -> List[List[Any]]: # type: ignore
-        """
-        Process items in batches.
-        
-        Args:
-            items: List of items to process
-            
-        Yields:
-            Batches of items
-        """
-        total = len(items)
-        processed = 0
-        
-        for batch in chunk_list(items, self.batch_size):
-            yield batch
-            processed += len(batch)
-            
-            if self.progress_callback:
-                self.progress_callback(processed, total)
-
-
-def setup_logging(
-    level: str = "INFO",
-    log_file: Optional[str] = None,
-    format_string: Optional[str] = None
-) -> None:
-    """
-    Configure logging for the Easy Acumatica package.
-    
-    Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Optional file path for log output
-        format_string: Optional custom format string
-    """
-    if format_string is None:
-        format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
-    logging.basicConfig(
-        level=getattr(logging, level.upper()),
-        format=format_string,
-        handlers=[
-            logging.StreamHandler(),
-            *(logging.FileHandler(log_file) if log_file else [])
-        ]
-    )
-    
-    # Set appropriate levels for third-party libraries
-    logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)

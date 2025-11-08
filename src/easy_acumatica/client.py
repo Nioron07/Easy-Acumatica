@@ -1622,7 +1622,7 @@ class AcumaticaClient:
             for field_name, field_type in model_class.__annotations__.items():
                 fields[field_name] = {
                     'type': str(field_type),
-                    'required': not str(field_type).startswith('Optional')
+                    'required': not str(field_type).startswith('typing.Optional')
                 }
         
         return {
@@ -1701,10 +1701,10 @@ class AcumaticaClient:
     def search_models(self, pattern: str) -> List[str]:
         """
         Search for models by name pattern.
-        
+
         Args:
             pattern: Search pattern (case-insensitive)
-            
+
         Returns:
             List of matching model names
             
