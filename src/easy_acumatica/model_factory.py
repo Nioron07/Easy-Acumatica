@@ -66,7 +66,7 @@ class ModelFactory:
         # Iterate over a copy of the values to prevent RuntimeError
         for model in list(self._models.values()):
             try:
-                resolved_annotations = get_type_hints(model, globalns=self._models)
+                resolved_annotations = get_type_hints(model, globalns=self._models, localns=self._models)
                 model.__annotations__ = resolved_annotations
             except Exception as e:
                 print(f"Warning: Could not resolve type hints for model {model.__name__}: {e}")
@@ -109,37 +109,60 @@ class ModelFactory:
         # Create helper functions that will be shared by all models
         def _simplify_type_impl(field_type, visited: set, model_registry: Dict[str, type]) -> Any:
             """Convert Python type annotation to simple representation."""
-            from typing import get_origin, get_args, Union
+            from typing import get_origin, get_args, Union, ForwardRef
             import dataclasses
 
             # Handle None type
             if field_type is type(None):
-                return 'Any'
+                raise ValueError(f"ERROR: NoneType encountered - field_type={field_type}")
 
             # Get origin for generic types (List, Optional, etc.)
             origin = get_origin(field_type)
 
-            # Handle Optional types
+            # Handle Optional types - unwrap before checking ForwardRef
             if origin is Union:
                 args = get_args(field_type)
                 # Filter out NoneType
                 non_none_args = [arg for arg in args if arg is not type(None)]
-                if len(non_none_args) == 1:
+                if len(non_none_args) == 0:
+                    raise ValueError(f"ERROR: Union with only None types - field_type={field_type}, args={args}")
+                elif len(non_none_args) == 1:
                     return _simplify_type_impl(non_none_args[0], visited, model_registry)
                 elif len(non_none_args) > 1:
                     return f"Union[{', '.join(_simplify_type_impl(arg, visited, model_registry) for arg in non_none_args)}]"
+
+            # Handle ForwardRef - try to resolve it from model_registry
+            if isinstance(field_type, (ForwardRef, str)):
+                ref_name = field_type.__forward_arg__ if isinstance(field_type, ForwardRef) else field_type
+                ref_name = ref_name.strip("'\"")  # Remove quotes if present
+                if ref_name in model_registry:
+                    field_type = model_registry[ref_name]
+                    # Re-get origin after resolving ForwardRef
+                    origin = get_origin(field_type)
+                else:
+                    raise ValueError(f"ERROR: ForwardRef '{ref_name}' not found in model_registry. Available: {list(model_registry.keys())[:10]}")
 
             # Handle List types
             if origin is list:
                 args = get_args(field_type)
                 if args:
-                    item_type = _simplify_type_impl(args[0], visited, model_registry)
-                    # If it's a dict (nested model), return as a list with one example
-                    if isinstance(item_type, dict):
-                        return [item_type]
-                    else:
-                        return [item_type]
-                return ['Any']
+                    inner_type = args[0]
+
+                    # Handle ForwardRef inside List
+                    if isinstance(inner_type, (ForwardRef, str)):
+                        ref_name = inner_type.__forward_arg__ if isinstance(inner_type, ForwardRef) else inner_type
+                        ref_name = ref_name.strip("'\"")
+                        if ref_name in model_registry:
+                            inner_type = model_registry[ref_name]
+
+                    # For dataclass types in lists, just show the type name, don't expand
+                    if dataclasses.is_dataclass(inner_type):
+                        return f"List[{inner_type.__name__}]"
+
+                    # For primitives, expand as before
+                    item_type_simplified = _simplify_type_impl(inner_type, visited, model_registry)
+                    return [item_type_simplified]
+                raise ValueError(f"ERROR: List with no args - field_type={field_type}")
 
             # Handle dataclass models
             if dataclasses.is_dataclass(field_type):
@@ -159,7 +182,7 @@ class ModelFactory:
                     return type_name
 
             # Default for unknown types
-            return 'Any'
+            raise ValueError(f"ERROR: Unknown type - field_type={field_type}, type={type(field_type)}, hasattr __name__={hasattr(field_type, '__name__')}")
 
         def _get_simple_schema_impl(model_class: type, visited: set, model_registry: Dict[str, type]) -> Dict[str, Any]:
             """Extract simplified schema from dataclass, recursively expanding nested models."""
