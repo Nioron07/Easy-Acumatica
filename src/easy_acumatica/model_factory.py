@@ -108,7 +108,7 @@ class ModelFactory:
 
         # Create helper functions that will be shared by all models
         def _simplify_type_impl(field_type, visited: set, model_registry: Dict[str, type]) -> Any:
-            """Convert Python type annotation to simple representation."""
+            """Convert Python type annotation to simple representation with type+fields structure."""
             from typing import get_origin, get_args, Union, ForwardRef
             import dataclasses
 
@@ -129,7 +129,9 @@ class ModelFactory:
                 elif len(non_none_args) == 1:
                     return _simplify_type_impl(non_none_args[0], visited, model_registry)
                 elif len(non_none_args) > 1:
-                    return f"Union[{', '.join(_simplify_type_impl(arg, visited, model_registry) for arg in non_none_args)}]"
+                    # For multi-type unions, return type with empty fields
+                    union_str = f"Union[{', '.join(_simplify_type_impl(arg, visited, model_registry)['type'] if isinstance(_simplify_type_impl(arg, visited, model_registry), dict) else str(_simplify_type_impl(arg, visited, model_registry)) for arg in non_none_args)}]"
+                    return {"type": union_str, "fields": {}}
 
             # Handle ForwardRef - try to resolve it from model_registry
             if isinstance(field_type, (ForwardRef, str)):
@@ -148,6 +150,15 @@ class ModelFactory:
                 if args:
                     inner_type = args[0]
 
+                    # Handle Optional/Union inside List - unwrap it
+                    inner_origin = get_origin(inner_type)
+                    if inner_origin is Union:
+                        inner_args = get_args(inner_type)
+                        # Filter out NoneType
+                        non_none_inner = [arg for arg in inner_args if arg is not type(None)]
+                        if len(non_none_inner) == 1:
+                            inner_type = non_none_inner[0]
+
                     # Handle ForwardRef inside List
                     if isinstance(inner_type, (ForwardRef, str)):
                         ref_name = inner_type.__forward_arg__ if isinstance(inner_type, ForwardRef) else inner_type
@@ -155,13 +166,23 @@ class ModelFactory:
                         if ref_name in model_registry:
                             inner_type = model_registry[ref_name]
 
-                    # For dataclass types in lists, just show the type name, don't expand
+                    # For dataclass types in lists, return type + fields structure
                     if dataclasses.is_dataclass(inner_type):
-                        return f"List[{inner_type.__name__}]"
+                        fields_schema = _get_simple_schema_impl(inner_type, visited.copy(), model_registry)
+                        return {
+                            "type": f"List[{inner_type.__name__}]",
+                            "fields": fields_schema
+                        }
 
-                    # For primitives, expand as before
-                    item_type_simplified = _simplify_type_impl(inner_type, visited, model_registry)
-                    return [item_type_simplified]
+                    # For primitive lists
+                    if hasattr(inner_type, '__name__') and inner_type.__name__ in ('str', 'int', 'float', 'bool', 'datetime'):
+                        return {
+                            "type": f"List[{inner_type.__name__}]",
+                            "fields": {}
+                        }
+
+                    # Fallback for unknown list types
+                    raise ValueError(f"ERROR: Unknown list inner type - inner_type={inner_type}")
                 raise ValueError(f"ERROR: List with no args - field_type={field_type}")
 
             # Handle dataclass models
@@ -169,17 +190,20 @@ class ModelFactory:
                 class_name = field_type.__name__
                 # Prevent circular references
                 if class_name in visited:
-                    return f"(circular: {class_name})"
+                    return {"type": f"(circular: {class_name})", "fields": {}}
                 visited.add(class_name)
-                result = _get_simple_schema_impl(field_type, visited, model_registry)
+                fields_schema = _get_simple_schema_impl(field_type, visited, model_registry)
                 visited.discard(class_name)
-                return result
+                return {
+                    "type": class_name,
+                    "fields": fields_schema
+                }
 
             # Handle primitive types
             if hasattr(field_type, '__name__'):
                 type_name = field_type.__name__
                 if type_name in ('str', 'int', 'float', 'bool', 'datetime'):
-                    return type_name
+                    return {"type": type_name, "fields": {}}
 
             # Default for unknown types
             raise ValueError(f"ERROR: Unknown type - field_type={field_type}, type={type(field_type)}, hasattr __name__={hasattr(field_type, '__name__')}")
