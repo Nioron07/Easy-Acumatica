@@ -199,6 +199,10 @@ class ModelFactory:
                     "fields": fields_schema
                 }
 
+            # Handle typing.Any
+            if field_type is Any or str(field_type) == 'typing.Any':
+                return {"type": "Any", "fields": {}}
+
             # Handle primitive types
             if hasattr(field_type, '__name__'):
                 type_name = field_type.__name__
