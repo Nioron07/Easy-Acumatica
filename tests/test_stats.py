@@ -54,7 +54,7 @@ def test_get_api_usage_stats(base_client_config):
 
     # Make some requests to generate stats
     try:
-        client.tests.get_by_id("123")
+        client.test.get_by_id("123")
     except:
         pass  # Ignore errors, we're just testing stats
 
@@ -119,7 +119,7 @@ def test_get_last_request_info(base_client_config):
 
     # Make a request
     try:
-        client.tests.get_by_id("123")
+        client.test.get_by_id("123")
     except:
         pass
 
@@ -144,7 +144,7 @@ def test_get_error_history(base_client_config):
 
     # Try to trigger an error
     try:
-        client.tests.get_by_id("nonexistent999")
+        client.test.get_by_id("nonexistent999")
     except:
         pass
 
@@ -175,7 +175,7 @@ def test_request_tracking(base_client_config):
     # Make multiple requests
     for i in range(3):
         try:
-            client.tests.get_list()
+            client.test.get_list()
         except:
             pass
 

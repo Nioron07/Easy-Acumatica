@@ -14,6 +14,27 @@ from .odata import QueryOptions
 if TYPE_CHECKING:
     from .client import AcumaticaClient
 
+def to_snake_case(name: str) -> str:
+    """
+    Convert a service name to snake_case form without pluralization.
+
+    Args:
+        name: The service name in PascalCase (e.g., 'SalesOrder', 'Company', 'Branch')
+
+    Returns:
+        snake_case name (e.g., 'sales_order', 'company', 'branch', 'inquiries')
+
+    Examples:
+        >>> to_snake_case('SalesOrder')
+        'sales_order'
+        >>> to_snake_case('Company')
+        'company'
+        >>> to_snake_case('Inquiries')
+        'inquiries'
+    """
+    # Convert PascalCase to snake_case
+    return ''.join(['_' + c.lower() if c.isupper() else c for c in name]).lstrip('_')
+
 def _generate_docstring(service_name: str, operation_id: str, details: Dict[str, Any], is_get_files: bool = False, is_get_by_keys: bool = False) -> str:
     """Generates a detailed docstring from OpenAPI schema details."""
 
@@ -597,7 +618,7 @@ class ServiceFactory:
                 return_type = f" -> {str(ret).replace('typing.', '')}"
 
         # Convert service entity name to snake_case
-        service_snake = ''.join(['_' + c.lower() if c.isupper() else c for c in service.entity_name]).lstrip('_')
+        service_snake = to_snake_case(service.entity_name)
         params_str = ', '.join(params)
         signature_str = f"{service_snake}.{method_name}({params_str}){return_type}"
 

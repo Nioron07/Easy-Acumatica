@@ -13,7 +13,7 @@ def test_successful_batch_get_by_id(base_client_config, reset_server_state):
     ids_to_fetch = ["123", "123", "123"]
     
     # Create batch calls using the .batch property
-    calls = [client.tests.get_by_id.batch(id) for id in ids_to_fetch]
+    calls = [client.test.get_by_id.batch(id) for id in ids_to_fetch]
     
     # Execute the batch call
     results = BatchCall(*calls).execute()
@@ -31,7 +31,7 @@ def test_create_batch_from_ids_helper(base_client_config, reset_server_state):
     ids_to_fetch = ["123", "123"]
     
     # Use the helper to create and execute the batch
-    results = create_batch_from_ids(client.tests, ids_to_fetch).execute()
+    results = create_batch_from_ids(client.test, ids_to_fetch).execute()
     
     assert len(results) == len(ids_to_fetch)
     assert results[0]['id'] == "123"
@@ -42,9 +42,9 @@ def test_batch_with_mixed_success_and_failure(base_client_config, reset_server_s
     client = AcumaticaClient(**base_client_config)
     
     batch = BatchCall(
-        client.tests.get_by_id.batch("123"),          # Success
-        client.tests.get_by_id.batch("999"),          # Failure (Not Found)
-        client.tests.get_by_id.batch("123"),          # Success
+        client.test.get_by_id.batch("123"),          # Success
+        client.test.get_by_id.batch("999"),          # Failure (Not Found)
+        client.test.get_by_id.batch("123"),          # Success
         return_exceptions=True
     )
     
@@ -74,9 +74,9 @@ def test_batch_fail_fast(base_client_config, reset_server_state):
 
     with pytest.raises(AcumaticaBatchError):
         BatchCall(
-            client.tests.get_by_id.batch("123"),
-            client.tests.get_by_id.batch("999"),  # This will fail
-            client.tests.get_by_id.batch("123"),
+            client.test.get_by_id.batch("123"),
+            client.test.get_by_id.batch("999"),  # This will fail
+            client.test.get_by_id.batch("123"),
             fail_fast=True,
             return_exceptions=False  # Ensure exceptions are raised
         ).execute()
@@ -87,8 +87,8 @@ def test_batch_return_exceptions_false(base_client_config, reset_server_state):
 
     with pytest.raises(AcumaticaBatchError):
         BatchCall(
-            client.tests.get_by_id.batch("123"),
-            client.tests.get_by_id.batch("999"),
+            client.test.get_by_id.batch("123"),
+            client.test.get_by_id.batch("999"),
             return_exceptions=False
         ).execute()
 
@@ -100,8 +100,8 @@ def test_batch_put_entity(base_client_config, reset_server_state):
     new_item2 = client.models.TestModel(Name="Batch Item 2")
     
     results = BatchCall(
-        client.tests.put_entity.batch(new_item1),
-        client.tests.put_entity.batch(new_item2)
+        client.test.put_entity.batch(new_item1),
+        client.test.put_entity.batch(new_item2)
     ).execute()
     
     assert len(results) == 2
@@ -115,8 +115,8 @@ def test_batch_delete_entity(base_client_config, reset_server_state):
     
     # The mock server returns 204 No Content, which results in None
     results = BatchCall(
-        client.tests.delete_by_id.batch("1"),
-        client.tests.delete_by_id.batch("2")
+        client.test.delete_by_id.batch("1"),
+        client.test.delete_by_id.batch("2")
     ).execute()
     
     assert results == (None, None)
@@ -128,9 +128,9 @@ def test_batch_with_mixed_operations(base_client_config, reset_server_state):
     new_item = client.models.TestModel(Name="Mixed Batch Item")
     
     get_result, put_result, delete_result = BatchCall(
-        client.tests.get_by_id.batch("123"),
-        client.tests.put_entity.batch(new_item),
-        client.tests.delete_by_id.batch("321")
+        client.test.get_by_id.batch("123"),
+        client.test.put_entity.batch(new_item),
+        client.test.delete_by_id.batch("321")
     ).execute()
     
     assert get_result['id'] == "123"
@@ -146,8 +146,8 @@ def test_progress_callback(base_client_config, reset_server_state):
         progress_updates.append((completed, total))
         
     BatchCall(
-        client.tests.get_by_id.batch("123"),
-        client.tests.get_by_id.batch("123"),
+        client.test.get_by_id.batch("123"),
+        client.test.get_by_id.batch("123"),
         progress_callback=my_callback
     ).execute()
     
@@ -167,9 +167,9 @@ def test_retry_failed_calls(base_client_config, reset_server_state):
     client = AcumaticaClient(**base_client_config)
     
     initial_batch = BatchCall(
-        client.tests.get_by_id.batch("123"),
-        client.tests.get_by_id.batch("999"),  # Fails
-        client.tests.get_by_id.batch("888")   # Fails
+        client.test.get_by_id.batch("123"),
+        client.test.get_by_id.batch("999"),  # Fails
+        client.test.get_by_id.batch("888")   # Fails
     )
     initial_batch.execute()
     

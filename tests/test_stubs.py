@@ -194,7 +194,7 @@ class AcumaticaClient:
     session: requests.Session
     
     # Service attributes
-    tests: TestService
+    test: TestService
     models: models
     
     def __init__(
@@ -304,7 +304,7 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
 
     # Check client.pyi contains expected content
     assert "class AcumaticaClient:" in client_content
-    assert "tests: TestService" in client_content
+    assert "test: TestService" in client_content
     assert "models: Any" in client_content
     assert "from . import models" in client_content or "from .services import" in client_content
 

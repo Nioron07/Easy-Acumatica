@@ -36,7 +36,7 @@ class TestClientBasicFeatures:
 
         assert client.endpoints["Default"]["version"] == LATEST_DEFAULT_VERSION
         assert client.endpoint_version == LATEST_DEFAULT_VERSION
-        result = client.tests.get_by_id("123")
+        result = client.test.get_by_id("123")
         assert result["id"] == "123"
         client.close()
         print(f"\n✅ Client successfully auto-detected latest version: {LATEST_DEFAULT_VERSION}")
@@ -61,7 +61,7 @@ class TestClientBasicFeatures:
         assert client.endpoint_version == OLD_DEFAULT_VERSION
 
         # Test API call with specified version
-        result = client.tests.get_by_id("223") 
+        result = client.test.get_by_id("223") 
         assert result["id"] == "223"
         assert result["Name"]["value"] == "Old Specific Test Item"
 
@@ -78,13 +78,13 @@ class TestClientBasicFeatures:
             cache_methods=False
         )
 
-        assert hasattr(client, 'tests')
+        assert hasattr(client, 'test')
         expected_methods = [
             'get_list', 'get_by_id', 'put_entity', 'delete_by_id',
             'invoke_action_test_action', 'get_ad_hoc_schema', 'put_file'
         ]
         for method_name in expected_methods:
-            assert hasattr(client.tests, method_name)
+            assert hasattr(client.test, method_name)
         client.close()
 
     def test_inquiry_service_generated(self, live_server_url):
@@ -667,12 +667,12 @@ class TestCacheIntegration:
         )
 
         # Test basic API operations work with cached client
-        result = client.tests.get_list()
+        result = client.test.get_list()
         assert isinstance(result, list)
         assert len(result) > 0
 
         # Test specific entity retrieval
-        entity = client.tests.get_by_id("123")
+        entity = client.test.get_by_id("123")
         assert entity["id"] == "123"
 
         # Test model creation and API call
@@ -683,7 +683,7 @@ class TestCacheIntegration:
         )
 
         # Test PUT operation
-        put_result = client.tests.put_entity(test_model)
+        put_result = client.test.put_entity(test_model)
         assert "id" in put_result
 
         client.close()
@@ -770,8 +770,8 @@ class TestNewStatisticsFeatures:
         """Test get_api_usage_stats tracks API calls properly."""
         client.reset_statistics() # Reset for a clean test
         # Make some test requests
-        client.tests.get_list()
-        client.tests.get_by_id("123")
+        client.test.get_list()
+        client.test.get_by_id("123")
 
         stats = client.get_api_usage_stats()
 
@@ -841,7 +841,7 @@ class TestNewStatisticsFeatures:
 
     def test_get_last_request_info(self, client):
         """Test get_last_request_info tracks last API call."""
-        client.tests.get_by_id("123")
+        client.test.get_by_id("123")
 
         # Now should have info
         info = client.get_last_request_info()
@@ -865,7 +865,7 @@ class TestNewStatisticsFeatures:
 
         # Try to trigger an error
         with pytest.raises(Exception):
-            client.tests.get_by_id("NONEXISTENT999")
+            client.test.get_by_id("NONEXISTENT999")
 
         # Check error history
         errors = client.get_error_history(5)
@@ -884,7 +884,7 @@ class TestNewStatisticsFeatures:
         client.enable_request_history(max_items=10)
 
         for i in range(3):
-            client.tests.get_list()
+            client.test.get_list()
 
         history = client.get_request_history(limit=5)
         assert isinstance(history, list)
@@ -931,7 +931,7 @@ class TestNewStatisticsFeatures:
 
     def test_reset_statistics(self, client):
         """Test reset_statistics clears tracked metrics."""
-        client.tests.get_list()
+        client.test.get_list()
 
         stats_before = client.get_api_usage_stats()
         assert stats_before['total_requests'] > 0
@@ -967,7 +967,7 @@ class TestCustomEndpoints:
 
         # ACT: Call a service method. The mock server is configured to return a
         # unique response only for requests sent to the '/entity/Custom/...' URL.
-        result = client.tests.get_by_id("CUST-01")
+        result = client.test.get_by_id("CUST-01")
 
         # ASSERT RESULT: Verify that we received the unique response from the custom endpoint,
         # proving the request was routed correctly.

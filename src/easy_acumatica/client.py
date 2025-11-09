@@ -75,7 +75,7 @@ from .config import AcumaticaConfig
 from .exceptions import AcumaticaAuthError, AcumaticaError, AcumaticaConnectionError
 from .helpers import _raise_with_detail
 from .model_factory import ModelFactory
-from .service_factory import ServiceFactory
+from .service_factory import ServiceFactory, to_snake_case
 from .core import BatchMethodWrapper
 from .utils import RateLimiter, retry_on_error, validate_entity_id
 from .core import BaseDataClassModel, BaseService
@@ -1249,24 +1249,11 @@ class AcumaticaClient:
                     if metadata['custom_name']:
                         attr_name = metadata['custom_name']
                     else:
-                        # Fallback to default naming if custom name couldn't be generated
-                        attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+                        # Fallback to default pluralization
+                        attr_name = to_snake_case(service_name)
                 else:
-                    # Convert PascalCase to snake_case for regular endpoints
-                    snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
-                    # Handle pluralization properly
-                    if service_name == 'Inquiries' or snake_case.endswith('ies'):
-                        attr_name = snake_case
-                    elif snake_case.endswith('inquiry'):
-                        # inquiry -> inquiries
-                        attr_name = snake_case[:-1] + 'ies'
-                    elif snake_case.endswith('class'):
-                        # class -> classes
-                        attr_name = snake_case + 'es'
-                    elif not snake_case.endswith('s'):
-                        attr_name = snake_case + 's'
-                    else:
-                        attr_name = snake_case
+                    # Use centralized pluralization logic
+                    attr_name = to_snake_case(service_name)
                 setattr(self, attr_name, service_instance)
                 self._available_services.add(service_name)
                 self._service_instances[service_name] = service_instance
@@ -1344,20 +1331,10 @@ class AcumaticaClient:
             if metadata['custom_name']:
                 attr_name = metadata['custom_name']
             else:
-                attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+                attr_name = to_snake_case(service_name)
         else:
-            # Regular service naming
-            snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
-            if service_name == 'Inquiries' or snake_case.endswith('ies'):
-                attr_name = snake_case
-            elif snake_case.endswith('inquiry'):
-                attr_name = snake_case[:-1] + 'ies'
-            elif snake_case.endswith('class'):
-                attr_name = snake_case + 'es'
-            elif not snake_case.endswith('s'):
-                attr_name = snake_case + 's'
-            else:
-                attr_name = snake_case
+            # Use centralized pluralization logic
+            attr_name = to_snake_case(service_name)
 
         if hasattr(self, attr_name):
             delattr(self, attr_name)
@@ -1511,25 +1488,12 @@ class AcumaticaClient:
                     if metadata['custom_name']:
                         attr_name = metadata['custom_name']
                     else:
-                        # Fallback to default naming if custom name couldn't be generated
-                        attr_name = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_') + 's'
+                        # Fallback to default pluralization
+                        attr_name = to_snake_case(name)
                 else:
-                    # Convert PascalCase to snake_case for regular endpoints
-                    snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_')
-                    # Handle pluralization properly
-                    if name == 'Inquiries' or snake_case.endswith('ies'):
-                        attr_name = snake_case
-                    elif snake_case.endswith('inquiry'):
-                        # inquiry -> inquiries
-                        attr_name = snake_case[:-1] + 'ies'
-                    elif snake_case.endswith('class'):
-                        # class -> classes
-                        attr_name = snake_case + 'es'
-                    elif not snake_case.endswith('s'):
-                        attr_name = snake_case + 's'
-                    else:
-                        attr_name = snake_case
-                
+                    # Use centralized pluralization logic
+                    attr_name = to_snake_case(name)
+
                 # Add batch support to all service methods
                 self._add_batch_support_to_service(service_instance)
                 
@@ -1674,20 +1638,10 @@ class AcumaticaClient:
             if metadata['custom_name']:
                 client_attribute = metadata['custom_name']
             else:
-                client_attribute = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_') + 's'
+                client_attribute = to_snake_case(service_name)
         else:
-            # Regular service naming logic
-            snake_case = ''.join(['_' + i.lower() if i.isupper() else i for i in service_name]).lstrip('_')
-            if service_name == 'Inquiries' or snake_case.endswith('ies'):
-                client_attribute = snake_case
-            elif snake_case.endswith('inquiry'):
-                client_attribute = snake_case[:-1] + 'ies'
-            elif snake_case.endswith('class'):
-                client_attribute = snake_case + 'es'
-            elif not snake_case.endswith('s'):
-                client_attribute = snake_case + 's'
-            else:
-                client_attribute = snake_case
+            # Use centralized pluralization logic
+            client_attribute = to_snake_case(service_name)
 
         return {
             'name': service_name,

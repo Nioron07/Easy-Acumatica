@@ -19,8 +19,8 @@ def test_client_and_model_structure(live_server_url):
     )
 
     # 2. Assert Service and Method Creation
-    assert hasattr(client, "tests"), "The 'tests' service should be created."
-    test_service = client.tests
+    assert hasattr(client, "test"), "The 'test' service should be created."
+    test_service = client.test
     assert isinstance(test_service, BaseService)
     assert hasattr(test_service, "get_list"), "Method get_list should exist."
     assert hasattr(test_service, "put_entity"), "Method put_entity should exist."

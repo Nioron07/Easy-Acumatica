@@ -37,7 +37,7 @@ def test_differential_update_on_schema_change(base_client_config, temp_cache_dir
     # First run with schema v1
     client1 = AcumaticaClient(**base_client_config, cache_methods=True, cache_dir=temp_cache_dir)
     assert not hasattr(client1.models, "ExtendedTestModel")
-    assert not hasattr(client1, "extended_tests")
+    assert not hasattr(client1, "extended_test")
 
     # Change the schema version on the mock server
     requests.post(f"{base_client_config['base_url']}/test/schema/version", json={"version": "v2"})
@@ -47,7 +47,7 @@ def test_differential_update_on_schema_change(base_client_config, temp_cache_dir
     
     # Check for new models and services from schema v2
     assert hasattr(client2.models, "ExtendedTestModel")
-    assert hasattr(client2, "extended_tests")
+    assert hasattr(client2, "extended_test")
     assert "NewField" in client2.get_model_info("TestModel")['fields']
     
     # Check stats for a partial cache miss
