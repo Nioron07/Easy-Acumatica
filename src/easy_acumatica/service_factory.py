@@ -471,6 +471,12 @@ class ServiceFactory:
         final_method.__name__ = "get_files"
         service.get_files = final_method.__get__(service, BaseService)
 
+        # Store signature for introspection
+        service_snake = to_snake_case(service.entity_name)
+        signature_str = f"{service_snake}.get_files(entity_id: str, api_version: str = None) -> list"
+        if hasattr(service, '_method_signatures'):
+            service._method_signatures['get_files'] = signature_str
+
     def _add_method_to_service(self, service: BaseService, path: str, http_method: str, details: Dict[str, Any]):
         """
         Creates a single Python method based on an API operation and attaches it to a service.
