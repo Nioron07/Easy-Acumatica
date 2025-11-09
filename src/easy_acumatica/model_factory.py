@@ -171,15 +171,6 @@ class ModelFactory:
             if hasattr(model_class, '__annotations__'):
                 for field_name, field_type in model_class.__annotations__.items():
                     simplified = _simplify_type_impl(field_type, visited, model_registry)
-
-                    # Special case: if type resolved to Any but field name matches a known model,
-                    # try to expand that model (e.g., Contact field in CustomerContact)
-                    if simplified == 'Any' and field_name in model_registry:
-                        if field_name not in visited:
-                            visited.add(field_name)
-                            simplified = _get_simple_schema_impl(model_registry[field_name], visited, model_registry)
-                            visited.discard(field_name)
-
                     simple_schema[field_name] = simplified
 
             return simple_schema
