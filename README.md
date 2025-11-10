@@ -2,6 +2,11 @@
 
 A comprehensive Python client for Acumatica's REST API that simplifies integration with intelligent caching, batch operations, and automatic code generation.
 
+## Related Projects
+
+- **[AcuNexus](https://github.com/Nioron07/AcuNexus)** - Desktop application for exploring and testing Acumatica APIs with a user-friendly GUI
+- **[easy-acumatica-npm](https://www.npmjs.com/package/easy-acumatica)** - TypeScript/JavaScript sister package for Node.js environments
+
 ## Features
 
 ### Core Capabilities
@@ -252,11 +257,6 @@ This generates Python stub files that provide full type hints for all dynamicall
 ## Documentation
 
 Full documentation is available at: **https://easyacumatica.com/python**
-
-## NPM Version
-
-Not using Python? Check out the Node.js/TypeScript version:
-- **NPM Package**: [easy-acumatica](https://github.com/joebewon/Easy-Acumatica)
 
 ## Performance Best Practices
 
