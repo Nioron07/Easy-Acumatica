@@ -4,7 +4,7 @@ A comprehensive Python client for Acumatica's REST API that simplifies integrati
 
 ## Related Projects
 
-- **[AcuNexus](https://github.com/Nioron07/AcuNexus)** - Desktop application for exploring, managing, and deploying Acumatica clients and endpoints with a user-friendly GUI
+- **[AcuNexus](https://github.com/Nioron07/AcuNexus)** - Docker application for exploring, managing, and deploying Acumatica clients and endpoints with a user-friendly GUI
 - **[easy-acumatica-npm](https://www.npmjs.com/package/easy-acumatica)** - TypeScript/JavaScript sister package for Node.js environments
 
 ## Features
