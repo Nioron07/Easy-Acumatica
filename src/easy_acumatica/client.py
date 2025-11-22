@@ -272,11 +272,15 @@ class AcumaticaClient:
         """
         # --- 1. Handle automatic environment loading ---
         env_vars_loaded = {}
-        
+
+        # Disable auto-loading if all credentials are provided
+        if base_url and username and password and tenant:
+            auto_load_env = False
+
         if auto_load_env and not config:
             # Check if we need to load environment variables
             missing_credentials = not all([base_url, username, password, tenant])
-            
+
             if missing_credentials:
                 # Load from specified .env file or search for one
                 if env_file:
@@ -378,18 +382,19 @@ class AcumaticaClient:
             if not username: missing.append("username (ACUMATICA_USERNAME)")
             if not password: missing.append("password (ACUMATICA_PASSWORD)")
             if not tenant: missing.append("tenant (ACUMATICA_TENANT)")
-            
+
             error_msg = f"Missing required credentials: {', '.join(missing)}"
+
             if auto_load_env and not env_file and not find_env_file():
                 error_msg += "\n\nNo .env file found. Create a .env file with your credentials:"
                 error_msg += "\nACUMATICA_URL=https://your-instance.acumatica.com"
-                error_msg += "\nACUMATICA_USERNAME=your-username"  
+                error_msg += "\nACUMATICA_USERNAME=your-username"
                 error_msg += "\nACUMATICA_PASSWORD=your-password"
                 error_msg += "\nACUMATICA_TENANT=your-tenant"
                 error_msg += "\nACUMATICA_CACHE_METHODS=true"
             elif auto_load_env:
                 error_msg += f"\n\nCheck your .env file contains the required variables."
-            
+
             raise ValueError(error_msg)
         
         # --- 3. Set up public attributes ---
