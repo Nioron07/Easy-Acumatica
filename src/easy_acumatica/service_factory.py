@@ -614,14 +614,23 @@ class ServiceFactory:
             else:
                 params.append(f"{param_name}{type_str}")
 
-        # Get return type
-        return_type = ''
-        if sig.return_annotation != inspect.Signature.empty:
-            ret = sig.return_annotation
-            if hasattr(ret, '__name__'):
-                return_type = f" -> {ret.__name__}"
-            else:
-                return_type = f" -> {str(ret).replace('typing.', '')}"
+        # Determine return type based on operation
+        if "GetList" in operation_id:
+            return_type = f" -> list[{service.entity_name}]"
+        elif "GetById" in operation_id or "GetByKeys" in operation_id or "PutEntity" in operation_id:
+            return_type = f" -> {service.entity_name}"
+        elif "DeleteById" in operation_id or "DeleteByKeys" in operation_id:
+            return_type = " -> bool"
+        elif "InvokeAction" in operation_id or "GetAdHocSchema" in operation_id or "PutFile" in operation_id:
+            return_type = " -> dict"
+        else:
+            return_type = ''
+            if sig.return_annotation != inspect.Signature.empty:
+                ret = sig.return_annotation
+                if hasattr(ret, '__name__'):
+                    return_type = f" -> {ret.__name__}"
+                else:
+                    return_type = f" -> {str(ret).replace('typing.', '')}"
 
         # Convert service entity name to snake_case
         service_snake = to_snake_case(service.entity_name)
