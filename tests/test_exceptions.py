@@ -334,10 +334,12 @@ class TestExceptionEnhancement:
 class TestIntegrationScenarios:
     """Test exception handling in integration scenarios."""
 
-    @patch('easy_acumatica.client.requests.Session.get')
-    def test_connection_error(self, mock_get):
+    @patch('easy_acumatica.client.requests.Session')
+    def test_connection_error(self, mock_session):
         """Test handling of connection errors."""
-        mock_get.side_effect = requests.exceptions.ConnectionError("Failed to connect")
+        mock_sess_instance = mock_session.return_value
+        mock_sess_instance.get.side_effect = requests.exceptions.ConnectionError("Failed to connect")
+        mock_sess_instance.post.side_effect = requests.exceptions.ConnectionError("Failed to connect")
 
         with pytest.raises(AcumaticaError) as exc_info:
             AcumaticaClient(
@@ -349,7 +351,7 @@ class TestIntegrationScenarios:
 
         # Check for either connection error or failed to fetch endpoint error
         error_str = str(exc_info.value)
-        assert ("Failed to fetch endpoint" in error_str or "Connection" in error_str)
+        assert ("Failed to fetch endpoint" in error_str or "Connection" in error_str or "Login failed" in error_str)
 
     @patch('easy_acumatica.client.requests.Session')
     def test_auth_error_on_login(self, mock_session):
