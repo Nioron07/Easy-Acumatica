@@ -447,6 +447,8 @@ class ServiceFactory:
             # Determine package root directory based on this file's location
             package_dir = os.path.dirname(os.path.abspath(__file__))
             metadata_dir = os.path.join(package_dir, ".metadata")
+            if self._client._cache_dir_overridden:
+                metadata_dir = os.path.join(str(self._client.cache_dir), ".metadata")
             os.makedirs(metadata_dir, exist_ok=True)
 
             output_path = os.path.join(metadata_dir, "odata_schema.xml")
