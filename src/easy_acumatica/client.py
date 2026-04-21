@@ -416,6 +416,7 @@ class AcumaticaClient:
         self.cache_ttl_hours: int = cache_ttl_hours
         self.force_rebuild: bool = force_rebuild
         self.cache_dir: Path = cache_dir or Path.home() / ".easy_acumatica_cache"
+        self._cache_dir_overridden: bool = cache_dir is not None
         
         if self.cache_enabled:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1081,6 +1082,8 @@ class AcumaticaClient:
             import os
             package_dir = os.path.dirname(os.path.abspath(__file__))
             metadata_dir = os.path.join(package_dir, ".metadata")
+            if self._cache_dir_overridden:
+                metadata_dir = os.path.join(str(self.cache_dir), ".metadata")
             os.makedirs(metadata_dir, exist_ok=True)
 
             output_path = os.path.join(metadata_dir, "odata_inquiries_schema.xml")
