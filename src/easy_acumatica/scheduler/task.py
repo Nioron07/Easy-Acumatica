@@ -1,9 +1,10 @@
 """Scheduled task implementation."""
 
+import threading
 import uuid
 import logging
-from datetime import datetime
-from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from dataclasses import dataclass
 from typing import Any, Callable, Optional, Dict, List, Union
 from enum import Enum
 
@@ -159,6 +160,13 @@ class ScheduledTask:
         self.retry_count: int = 0
         self.last_result: Optional[TaskResult] = None
         self.history: List[TaskResult] = []
+        # Earliest wall-clock time the task is allowed to run again after
+        # a failure. Honored by is_due() so the scheduler loop respects
+        # the configured retry_delay without spawning a separate Timer.
+        self._retry_after: Optional[datetime] = None
+        # Status reads/writes happen on both the scheduler thread and the
+        # executor thread; an RLock keeps is_due() / execute() consistent.
+        self._lock = threading.RLock()
 
         # Update next run time
         self.update_next_run()
@@ -177,19 +185,27 @@ class ScheduledTask:
 
     def is_due(self) -> bool:
         """Check if task is due to run."""
-        if not self.enabled or self.status == TaskStatus.RUNNING:
-            return False
+        with self._lock:
+            if not self.enabled or self.status == TaskStatus.RUNNING:
+                return False
 
-        if self.max_runs and self.run_count >= self.max_runs:
-            return False
+            if self.max_runs and self.run_count >= self.max_runs:
+                return False
 
-        # Check dependencies
-        if self.depends_on:
-            for dep_task in self.depends_on:
-                if dep_task.status != TaskStatus.COMPLETED:
+            # Honour pending retry deadline (set by execute() on failure).
+            if self._retry_after is not None:
+                if datetime.now() < self._retry_after:
                     return False
+                # Retry deadline reached - the next execute() clears it.
+                return True
 
-        return self.schedule.is_due(self.last_run)
+            # Check dependencies
+            if self.depends_on:
+                for dep_task in self.depends_on:
+                    if dep_task.status != TaskStatus.COMPLETED:
+                        return False
+
+            return self.schedule.is_due(self.last_run)
 
     def can_retry(self) -> bool:
         """Check if task can be retried after failure."""
@@ -202,7 +218,10 @@ class ScheduledTask:
     def execute(self) -> TaskResult:
         """Execute the task."""
         start_time = datetime.now()
-        self.status = TaskStatus.RUNNING
+        with self._lock:
+            self.status = TaskStatus.RUNNING
+            # Clear any pending retry window - we are running now.
+            self._retry_after = None
 
         logger.info(f"Executing task '{self.name}' (ID: {self.id})")
 
@@ -272,9 +291,18 @@ class ScheduledTask:
 
             # Handle retry
             if self.can_retry():
-                self.retry_count += 1
-                self.status = TaskStatus.PENDING
-                logger.info(f"Task '{self.name}' will retry (attempt {self.retry_count}/{self.retry_policy.max_retries})")
+                with self._lock:
+                    self.retry_count += 1
+                    self.status = TaskStatus.PENDING
+                    # Defer the next attempt until retry_delay has passed.
+                    # The scheduler loop's is_due() honors _retry_after.
+                    self._retry_after = datetime.now() + timedelta(
+                        seconds=self.retry_policy.get_retry_delay(self.retry_count - 1)
+                    )
+                logger.info(
+                    f"Task '{self.name}' will retry at {self._retry_after.isoformat()} "
+                    f"(attempt {self.retry_count}/{self.retry_policy.max_retries})"
+                )
             else:
                 # Call failure callback
                 if self.on_failure:

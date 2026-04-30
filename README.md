@@ -11,7 +11,6 @@ operations, caching, and a built-in interactive TUI for exploring the API.
 ```bash
 pip install easy-acumatica           # core
 pip install easy-acumatica[tui]      # core + interactive TUI
-pip install easy-acumatica[scheduler]  # core + APScheduler
 ```
 
 ## Quick start

@@ -68,9 +68,6 @@ def schedule(
         # Add method to start scheduling
         def start_scheduling(schedule_obj):
             """Start scheduling this function."""
-            if not hasattr(func, '_scheduler'):
-                raise RuntimeError("Function is not decorated with a scheduler")
-
             task = func._scheduler.add_task(
                 name=func._task_name,
                 callable_obj=func,
@@ -78,7 +75,7 @@ def schedule(
                 enabled=func._task_enabled,
                 max_runs=func._max_runs,
                 retry_policy=func._retry_policy,
-                priority=func._priority
+                priority=func._priority,
             )
             func._task = task
             return task
@@ -103,7 +100,7 @@ def every(
     max_runs: Optional[int] = None,
     retry_policy: Optional[RetryPolicy] = None,
     priority: int = 0,
-    start_immediately: bool = True
+    start_immediately: bool = False
 ):
     """
     Decorator to schedule a function at fixed intervals.
@@ -168,7 +165,7 @@ def cron(
     max_runs: Optional[int] = None,
     retry_policy: Optional[RetryPolicy] = None,
     priority: int = 0,
-    start_immediately: bool = True
+    start_immediately: bool = False
 ):
     """
     Decorator to schedule a function using cron expression.
@@ -225,7 +222,7 @@ def daily(
     max_runs: Optional[int] = None,
     retry_policy: Optional[RetryPolicy] = None,
     priority: int = 0,
-    start_immediately: bool = True
+    start_immediately: bool = False
 ):
     """
     Decorator to schedule a function daily at specific time.
@@ -284,7 +281,7 @@ def weekly(
     max_runs: Optional[int] = None,
     retry_policy: Optional[RetryPolicy] = None,
     priority: int = 0,
-    start_immediately: bool = True
+    start_immediately: bool = False
 ):
     """
     Decorator to schedule a function weekly at specific day and time.

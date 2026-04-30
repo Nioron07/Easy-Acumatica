@@ -538,5 +538,82 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(result.result, ["result1", "result2"])
 
 
+class TestRegressionFixes(unittest.TestCase):
+    """Regression coverage for the scheduler blocker fixes."""
+
+    def test_load_tasks_populates_pending_restorations(self):
+        """load_tasks() must expose persisted metadata for rehydration."""
+        with tempfile.TemporaryDirectory() as tmp:
+            persist_file = Path(tmp) / 'tasks.json'
+            scheduler = TaskScheduler(persist_tasks=True, persist_file=persist_file)
+            scheduler.add_task(
+                name='Persisted',
+                callable_obj=lambda: 'ok',
+                schedule=IntervalSchedule(hours=1),
+            )
+
+            # Re-instantiate the scheduler to mimic a process restart.
+            scheduler2 = TaskScheduler(persist_tasks=True, persist_file=persist_file)
+            self.assertEqual(len(scheduler2.pending_restorations), 1)
+
+            (task_id, meta), = scheduler2.pending_restorations.items()
+            self.assertEqual(meta['name'], 'Persisted')
+
+            restored = scheduler2.restore_task(task_id, lambda: 'rehydrated')
+            self.assertIsNotNone(restored)
+            self.assertEqual(scheduler2.pending_restorations, {})
+            self.assertEqual(scheduler2.tasks[task_id].name, 'Persisted')
+
+    def test_start_after_stop_recreates_executor(self):
+        """stop() must not leave start() pointed at a shutdown executor."""
+        scheduler = TaskScheduler(check_interval=10)
+        scheduler.start()
+        scheduler.stop(wait=True)
+        # Should not raise "cannot schedule new futures after shutdown".
+        scheduler.start()
+        try:
+            scheduler.add_task(
+                name='post-restart',
+                callable_obj=lambda: 'ok',
+                schedule=IntervalSchedule(hours=1),
+            )
+            future = scheduler.execute_now(scheduler.list_tasks()[0].id)
+            self.assertIsNotNone(future)
+            future.result(timeout=2)
+        finally:
+            scheduler.stop(wait=True)
+
+    def test_dependency_cycle_raises(self):
+        """resolve_task_dependencies must detect cycles instead of looping."""
+        from easy_acumatica.scheduler.utils import resolve_task_dependencies
+
+        a = ScheduledTask(name='a', callable_obj=lambda: None,
+                          schedule=IntervalSchedule(hours=1))
+        b = ScheduledTask(name='b', callable_obj=lambda: None,
+                          schedule=IntervalSchedule(hours=1))
+        a.depends_on = [b]
+        b.depends_on = [a]
+
+        with self.assertRaises(ValueError):
+            resolve_task_dependencies([a, b])
+
+    def test_retry_does_not_double_fire(self):
+        """task.execute() retry path defers via _retry_after; is_due() must
+        respect the deadline so the scheduler loop doesn't re-run instantly."""
+        def flaky():
+            raise RuntimeError('fail')
+
+        task = ScheduledTask(
+            name='flaky',
+            callable_obj=flaky,
+            schedule=IntervalSchedule(seconds=1),
+            retry_policy=RetryPolicy(max_retries=3, retry_delay=60),
+        )
+        task.execute()  # first failure - schedules retry 60s out
+        # Even though the schedule's interval has nominally elapsed,
+        # _retry_after is far in the future, so is_due() must return False.
+        self.assertFalse(task.is_due())
+
+
 if __name__ == '__main__':
     unittest.main()

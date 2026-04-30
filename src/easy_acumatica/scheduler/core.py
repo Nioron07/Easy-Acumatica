@@ -1,9 +1,9 @@
 """Core task scheduler implementation."""
 
 import logging
+import sys
 import threading
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Callable, Union, Any
 from concurrent.futures import ThreadPoolExecutor, Future
 import json
@@ -48,7 +48,7 @@ class TaskScheduler:
         self._task_lock = threading.RLock()
 
         # Execution management
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._executor: Optional[ThreadPoolExecutor] = None
         self._running_tasks: Dict[str, Future] = {}
         self._scheduler_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -59,6 +59,11 @@ class TaskScheduler:
         self.successful_executions = 0
         self.failed_executions = 0
         self.start_time: Optional[datetime] = None
+
+        # Persisted-task metadata loaded from disk that has no associated
+        # callable yet. Keyed by task_id; populated by load_tasks(). Users
+        # rehydrate via restore_task(task_id, callable_obj).
+        self.pending_restorations: Dict[str, Dict[str, Any]] = {}
 
         # Load persisted tasks if enabled
         if self.persist_tasks:
@@ -163,6 +168,12 @@ class TaskScheduler:
             logger.warning("Scheduler is already running")
             return
 
+        # The previous executor was shut down by stop(); allocate a fresh
+        # one so submits don't fail with "cannot schedule new futures
+        # after shutdown".
+        if self._executor is None or getattr(self._executor, '_shutdown', False):
+            self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+
         self._running = True
         self._stop_event.clear()
         self.start_time = datetime.now()
@@ -197,8 +208,12 @@ class TaskScheduler:
         if self._scheduler_thread and wait:
             self._scheduler_thread.join(timeout=timeout)
 
-        # Shutdown executor
-        self._executor.shutdown(wait=wait, cancel_futures=not wait)
+        # Shutdown executor. ``cancel_futures`` is Python 3.9+ only.
+        if self._executor is not None:
+            if sys.version_info >= (3, 9):
+                self._executor.shutdown(wait=wait, cancel_futures=not wait)
+            else:
+                self._executor.shutdown(wait=wait)
 
         # Save tasks if persistence is enabled
         if self.persist_tasks:
@@ -272,26 +287,21 @@ class TaskScheduler:
             raise
 
     def _task_completed(self, task_id: str, future: Future):
-        """Callback when task execution completes."""
+        """Callback when task execution completes.
+
+        Retry scheduling lives on the ScheduledTask itself (it sets
+        ``_retry_after``); the scheduler loop will pick the task up again
+        once that deadline passes. We deliberately don't spawn a Timer
+        here - that previously raced with ``_check_and_execute_due_tasks``
+        and could fire the same task twice.
+        """
         with self._task_lock:
             if task_id in self._running_tasks:
                 del self._running_tasks[task_id]
-
             try:
-                result = future.result()
-                if not result.success:
-                    # Check if task should be retried
-                    task = self.get_task(task_id)
-                    if task and task.can_retry():
-                        # Schedule retry
-                        retry_delay = task.get_retry_delay()
-                        threading.Timer(
-                            retry_delay,
-                            lambda: self._executor.submit(self._execute_task, task)
-                        ).start()
-
+                future.result()  # surface any unexpected exception via logging
             except Exception as e:
-                logger.error(f"Error handling task completion: {e}")
+                logger.error(f"Error handling task completion for {task_id}: {e}")
 
     def execute_now(self, task_id: str) -> Optional[Future]:
         """
@@ -307,8 +317,12 @@ class TaskScheduler:
         if not task:
             return None
 
-        future = self._executor.submit(self._execute_task, task)
-        return future
+        # Lazily allocate the executor so callers can fire tasks before
+        # start() (or after stop()).
+        if self._executor is None or getattr(self._executor, '_shutdown', False):
+            self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+
+        return self._executor.submit(self._execute_task, task)
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get scheduler statistics."""
@@ -366,7 +380,14 @@ class TaskScheduler:
             logger.error(f"Error saving tasks: {e}")
 
     def load_tasks(self):
-        """Load tasks from persistence file."""
+        """Load persisted task metadata from disk.
+
+        Callables are not serializable, so this populates
+        ``self.pending_restorations`` (a dict of task_id -> metadata) for
+        the caller to rehydrate via :meth:`restore_task`. Schedules are
+        deserialized eagerly so the caller can inspect them before
+        rebuilding.
+        """
         if not self.persist_file or not self.persist_file.exists():
             return
 
@@ -377,17 +398,64 @@ class TaskScheduler:
             logger.info(f"Loading {len(tasks_data)} tasks from {self.persist_file}")
 
             for task_id, task_data in tasks_data.items():
-                # Deserialize schedule
-                schedule = deserialize_schedule(task_data['schedule'])
-
-                # Note: We can't restore the callable, so we create a placeholder
-                # The user will need to reassign the callable after loading
-                logger.warning(
-                    f"Task '{task_data['name']}' loaded but callable must be reassigned"
+                try:
+                    schedule = deserialize_schedule(task_data['schedule'])
+                except Exception as e:
+                    logger.error(
+                        f"Skipping task '{task_data.get('name')}': bad schedule ({e})"
+                    )
+                    continue
+                last_run_raw = task_data.get('last_run')
+                last_run = (
+                    datetime.fromisoformat(last_run_raw) if last_run_raw else None
+                )
+                self.pending_restorations[task_id] = {
+                    'name': task_data['name'],
+                    'schedule': schedule,
+                    'enabled': task_data.get('enabled', True),
+                    'max_runs': task_data.get('max_runs'),
+                    'metadata': task_data.get('metadata', {}),
+                    'priority': task_data.get('priority', 0),
+                    'run_count': task_data.get('run_count', 0),
+                    'last_run': last_run,
+                }
+            if self.pending_restorations:
+                logger.info(
+                    f"{len(self.pending_restorations)} task(s) awaiting "
+                    f"restore_task() to attach a callable."
                 )
 
         except Exception as e:
             logger.error(f"Error loading tasks: {e}")
+
+    def restore_task(
+        self,
+        task_id: str,
+        callable_obj: Union[Callable, CallableWrapper],
+    ) -> Optional[ScheduledTask]:
+        """Rehydrate a persisted task by attaching a callable.
+
+        Returns the new :class:`ScheduledTask`, or ``None`` if the id
+        wasn't in :attr:`pending_restorations`.
+        """
+        meta = self.pending_restorations.pop(task_id, None)
+        if meta is None:
+            return None
+        task = self.add_task(
+            name=meta['name'],
+            callable_obj=callable_obj,
+            schedule=meta['schedule'],
+            task_id=task_id,
+            enabled=meta['enabled'],
+            max_runs=meta['max_runs'],
+            metadata=meta['metadata'],
+            priority=meta['priority'],
+        )
+        # Restore execution counters so persistence is round-trip lossless.
+        task.run_count = meta.get('run_count', 0)
+        task.last_run = meta.get('last_run')
+        task.update_next_run()
+        return task
 
     def clear_history(self, task_id: Optional[str] = None):
         """

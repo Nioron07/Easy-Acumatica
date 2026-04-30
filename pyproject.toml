@@ -47,9 +47,6 @@ dev = [
   "types-requests",
   "textual>=0.70.0",  # for TUI tests
 ]
-scheduler = [
-  "APScheduler>=3.10.0",  # Advanced Python Scheduler for more complex scheduling needs
-]
 tui = [
   "textual>=0.70.0",  # interactive terminal UI for the `ea-debug` command
 ]

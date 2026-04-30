@@ -48,25 +48,26 @@ def resolve_task_dependencies(tasks: List[ScheduledTask]) -> List[ScheduledTask]
 
     Returns:
         List of tasks in dependency-resolved order
+
+    Raises:
+        ValueError: If a dependency cycle is detected.
     """
-    resolved = []
-    unresolved = tasks.copy()
+    resolved: List[ScheduledTask] = []
+    visiting: set = set()  # tasks currently on the recursion stack
 
     def resolve_task(task: ScheduledTask):
         if task in resolved:
             return
-
-        # First resolve all dependencies
+        if task in visiting:
+            cycle = ' -> '.join(t.name for t in visiting) + f' -> {task.name}'
+            raise ValueError(f"Dependency cycle detected: {cycle}")
+        visiting.add(task)
         for dep in task.depends_on:
-            if dep in unresolved:
-                resolve_task(dep)
-
+            resolve_task(dep)
+        visiting.discard(task)
         resolved.append(task)
-        if task in unresolved:
-            unresolved.remove(task)
 
-    while unresolved:
-        task = unresolved[0]
+    for task in tasks:
         resolve_task(task)
 
     return resolved

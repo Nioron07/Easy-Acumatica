@@ -242,8 +242,16 @@ class TaskBuilder:
         """Build and add the task to the scheduler."""
         task = self.build()
 
-        # Add to scheduler
-        self.scheduler.tasks[task.id] = task
+        # Register through TaskScheduler.add_task so the operation is
+        # serialized via _task_lock, the duplicate-name check runs, and
+        # persistence (if enabled) is consistent. Reusing the prebuilt
+        # task means the dataclass id and configured callbacks survive.
+        with self.scheduler._task_lock:
+            if task.name in [t.name for t in self.scheduler.tasks.values()]:
+                raise ValueError(f"Task with name '{task.name}' already exists")
+            self.scheduler.tasks[task.id] = task
+            if self.scheduler.persist_tasks:
+                self.scheduler.save_tasks()
 
         # Start scheduler if not running
         if not self.scheduler._running:
