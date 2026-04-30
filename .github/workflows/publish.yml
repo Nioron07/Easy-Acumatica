@@ -25,10 +25,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # install your package in editable mode so tests import it
-          pip install -e .
-          # install test requirements
-          pip install pytest requests-mock flask
+          # [dev] bundles pytest, pytest-asyncio, requests-mock, flask, and
+          # textual (needed by tests/test_tui.py).
+          pip install -e ".[dev]"
 
       - name: Run test suite
         run: |
