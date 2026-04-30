@@ -50,6 +50,9 @@ class AcumaticaConfig:
         rate_limit_calls_per_second: API rate limiting
         cache_methods: Enable method caching for faster startup
         cache_ttl_hours: Cache time-to-live in hours
+        schema_cache_ttl_hours: Disk cache TTL for the raw OpenAPI schema (hours).
+            Shorter than cache_ttl_hours because schema freshness matters more
+            for admin workflows (new customizations). Set to 0 to always refetch.
         cache_dir: Directory for storing cache files
         force_rebuild: Force rebuild ignoring cache
     """
@@ -77,6 +80,7 @@ class AcumaticaConfig:
     # Caching and performance options
     cache_methods: bool = False
     cache_ttl_hours: int = 24
+    schema_cache_ttl_hours: int = 1
     cache_dir: Optional[Path] = None
     force_rebuild: bool = False
     
@@ -148,6 +152,7 @@ class AcumaticaConfig:
             rate_limit_calls_per_second=get_env("RATE_LIMIT", 10.0, float),
             cache_methods=get_env("CACHE_METHODS", False, bool),
             cache_ttl_hours=get_env("CACHE_TTL_HOURS", 24, int),
+            schema_cache_ttl_hours=get_env("SCHEMA_CACHE_TTL_HOURS", 1, int),
             cache_dir=get_env("CACHE_DIR", None, Path),
             force_rebuild=get_env("FORCE_REBUILD", False, bool),
             log_level=get_env("LOG_LEVEL", "INFO"),
@@ -383,6 +388,14 @@ class AcumaticaConfig:
             raise ValueError("rate_limit_calls_per_second must be positive")
         if self.cache_ttl_hours <= 0:
             raise ValueError("cache_ttl_hours must be positive")
+        if self.schema_cache_ttl_hours < 0:
+            raise ValueError("schema_cache_ttl_hours cannot be negative")
+        if self.schema_cache_ttl_hours > self.cache_ttl_hours:
+            raise ValueError(
+                "schema_cache_ttl_hours must be <= cache_ttl_hours to avoid "
+                "stale-schema/newer-pickle mismatches that cause spurious "
+                "differential rebuilds"
+            )
         
         # Validate log level
         valid_log_levels = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}

@@ -338,17 +338,100 @@ class BaseService:
         """
         A generic method in BaseService to fetch data for any given inquiry.
         """
+        from .exceptions import (
+            AcumaticaConnectionError,
+            AcumaticaError,
+            AcumaticaTimeoutError,
+        )
+
         if not self._client.persistent_login:
             self._client.login()
 
         url = f"{self._client.base_url}/t/{self._client.tenant}/api/odata/gi/{inquiry_name}"
         params = options.to_params() if options else None
-        
-        response = requests.get(url=url, auth=(self._client.username, self._client._password), params=params)
-        
-        response.raise_for_status() # Or your custom error handling
 
-        if not self._client.persistent_login:
-            self._client.logout()
+        try:
+            try:
+                response = requests.get(
+                    url=url,
+                    auth=(self._client.username, self._client._password),
+                    params=params,
+                )
+            except requests.exceptions.Timeout as e:
+                raise AcumaticaTimeoutError(
+                    f"Timed out fetching inquiry '{inquiry_name}': {e}",
+                    operation="get_inquiry",
+                    entity=inquiry_name,
+                ) from e
+            except requests.exceptions.ConnectionError as e:
+                raise AcumaticaConnectionError(
+                    f"Connection error fetching inquiry '{inquiry_name}': {e}",
+                    operation="get_inquiry",
+                    entity=inquiry_name,
+                ) from e
+            except requests.exceptions.RequestException as e:
+                raise AcumaticaConnectionError(
+                    f"Request failed for inquiry '{inquiry_name}': {e}",
+                    operation="get_inquiry",
+                    entity=inquiry_name,
+                ) from e
+        finally:
+            if not self._client.persistent_login:
+                # Best-effort logout even if the request raised before we
+                # could process the response.
+                try:
+                    self._client.logout()
+                except Exception:
+                    pass
+
+        # 403 on this endpoint almost always means the inquiry exists in the
+        # tenant's metadata but does not have "Expose via OData" checked on
+        # the Generic Inquiry form (SM208000). The metadata document still
+        # lists it, so it shows up in client.list_inquiries(), but calling it
+        # is rejected. Surface a targeted explanation rather than a bare
+        # HTTP 403 traceback.
+        if response.status_code == 403:
+            raise AcumaticaError(
+                (
+                    f"Generic Inquiry '{inquiry_name}' is not exposed via OData. "
+                    f"Acumatica returned 403 Forbidden for {url}."
+                ),
+                status_code=403,
+                operation="get_inquiry",
+                entity=inquiry_name,
+                suggestions=[
+                    "Open the inquiry in Acumatica (form SM208000), tick "
+                    "'Expose via OData' on the results grid header, and save.",
+                    "If you only need the data programmatically, the inquiry "
+                    "can also be invoked via the contract-based REST endpoint.",
+                    "Confirm the signed-in user has the role/access rights "
+                    "required to run this inquiry.",
+                ],
+            )
+
+        if response.status_code == 404:
+            raise AcumaticaError(
+                (
+                    f"Generic Inquiry '{inquiry_name}' was not found at {url}. "
+                    "It may have been renamed or removed since the metadata "
+                    "cache was last refreshed."
+                ),
+                status_code=404,
+                operation="get_inquiry",
+                entity=inquiry_name,
+                suggestions=[
+                    "Run client.refresh_schema() to rebuild the inquiry list.",
+                    "Verify the inquiry name on the Generic Inquiry form (SM208000).",
+                ],
+            )
+
+        # All other non-2xx responses go through the shared error path so
+        # they get parsed into a typed AcumaticaError with body details.
+        if not response.ok:
+            _raise_with_detail(
+                response,
+                operation="get_inquiry",
+                entity=inquiry_name,
+            )
 
         return response.json()

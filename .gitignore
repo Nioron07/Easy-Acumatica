@@ -24,9 +24,17 @@ dist/
 # Local Testing
 indepthtests/
 stubs/
-src/easy_acumatica/client.pyi
-src/easy_acumatica/models.pyi
 swagger.json
 .metadata
-# Stubs
+
+# Generated inline stubs (per-instance schema; regenerate with `generate-stubs`).
+# Editable installs would otherwise commit a developer's own schema into the repo.
+src/easy_acumatica/__init__.pyi
+src/easy_acumatica/client.pyi
+src/easy_acumatica/core.pyi
+src/easy_acumatica/models.pyi
+src/easy_acumatica/services.pyi
+src/easy_acumatica/odata.pyi
+src/easy_acumatica/batch.pyi
 src/easy_acumatica/stubs
+.claude/settings.local.json

@@ -239,29 +239,6 @@ def clean_entity_data(data: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
-def parse_odata_error(error_response: Dict[str, Any]) -> str:
-    """
-    Parse OData error response into readable message.
-    
-    Args:
-        error_response: Error response from OData endpoint
-        
-    Returns:
-        Human-readable error message
-    """
-    if "error" in error_response:
-        error = error_response["error"]
-        if isinstance(error, dict):
-            message = error.get("message", "Unknown OData error")
-            if isinstance(message, dict):
-                return message.get("value", str(message))
-            return str(message)
-        return str(error)
-
-    # Fallback to general message
-    return json.dumps(error_response)
-
-
 def merge_entity_data(
     original: Dict[str, Any],
     updates: Dict[str, Any],
@@ -295,74 +272,6 @@ def merge_entity_data(
             result[key] = value
 
     return result
-
-
-def validate_response_data(
-    data: Any,
-    expected_type: Optional[type] = None,
-    required_fields: Optional[list] = None
-) -> None:
-    """
-    Validate response data meets expected criteria.
-    
-    Args:
-        data: Response data to validate
-        expected_type: Expected data type
-        required_fields: List of required field names
-        
-    Raises:
-        AcumaticaError: If validation fails
-    """
-    if expected_type and not isinstance(data, expected_type):
-        raise AcumaticaError(
-            f"Invalid response type. Expected {expected_type.__name__}, "
-            f"got {type(data).__name__}"
-        )
-
-    if required_fields and isinstance(data, dict):
-        missing = [field for field in required_fields if field not in data]
-        if missing:
-            raise AcumaticaError(
-                f"Missing required fields in response: {', '.join(missing)}"
-            )
-
-
-def format_error_details(
-    error: Exception,
-    include_traceback: bool = False
-) -> Dict[str, Any]:
-    """
-    Format exception details for logging or API response.
-    
-    Args:
-        error: Exception to format
-        include_traceback: Whether to include full traceback
-        
-    Returns:
-        Dictionary with error details
-    """
-    import traceback
-
-    details = {
-        "error_type": type(error).__name__,
-        "message": str(error),
-    }
-
-    # Add Acumatica-specific details if available
-    if isinstance(error, AcumaticaError):
-        if hasattr(error, "status_code") and error.status_code:
-            details["status_code"] = error.status_code
-        if hasattr(error, "response_data") and error.response_data:
-            details["response_data"] = error.response_data
-        if hasattr(error, "error_code") and error.error_code:
-            details["error_code"] = error.error_code
-        if hasattr(error, "field_errors") and error.field_errors:
-            details["field_errors"] = error.field_errors
-
-    if include_traceback:
-        details["traceback"] = traceback.format_exc()
-
-    return details
 
 
 def safe_get_nested(

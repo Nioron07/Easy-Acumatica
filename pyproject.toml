@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy_acumatica"
-version = "0.5.13"
+version = "0.6.0"
 description = "Python wrapper for the Acumatica REST API"
 readme = "README.md"
 authors = [{ name="Matthew Hirstius", email="matthew.c.hirstius@gmail.com" }]
@@ -41,12 +41,17 @@ dev = [
   "pytest>=7.0.0",
   "pytest-cov>=4.0.0",
   "pytest-mock>=3.0.0",
+  "pytest-asyncio>=0.23.0",
   "requests-mock>=1.9.0",
   "flask>=2.0.0",
   "types-requests",
+  "textual>=0.70.0",  # for TUI tests
 ]
 scheduler = [
   "APScheduler>=3.10.0",  # Advanced Python Scheduler for more complex scheduling needs
+]
+tui = [
+  "textual>=0.70.0",  # interactive terminal UI for the `ea-debug` command
 ]
 
 [project.urls]
@@ -57,6 +62,7 @@ scheduler = [
 
 [project.scripts]
 generate-stubs = "easy_acumatica.generate_stubs:main"
+ea-debug = "easy_acumatica.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -64,7 +70,8 @@ include = ["easy_acumatica*"]
 
 [tool.setuptools.package-data]
 # PEP 561 compliance - include .pyi stub files and py.typed marker
-easy_acumatica = ["py.typed", "*.pyi"]
+# tui/*.tcss ships the TUI stylesheet alongside the package.
+easy_acumatica = ["py.typed", "*.pyi", "tui/*.tcss"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

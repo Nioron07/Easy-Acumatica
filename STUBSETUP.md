@@ -1,189 +1,175 @@
 # Easy-Acumatica Stub Setup Guide
 
-This guide explains how to generate and use type stubs for easy-acumatica to enable IDE autocompletion and type checking.
+This guide explains how to generate type stubs so VSCode, PyCharm, and mypy
+get full IDE autocompletion and type checking for the dynamically-generated
+models and services.
 
-## Quick Start
-
-Generate type stubs by running the stub generator:
-
-```bash
-python -m easy_acumatica.generate_stubs
-```
-
-The generator will prompt you for connection details or you can provide them as arguments.
-
-## What Are Stubs?
-
-Type stubs (.pyi files) provide type information for dynamically generated code. Since easy-acumatica creates models and services from your Acumatica schema at runtime, stubs help IDEs understand the structure of your code.
-
-## Generating Stubs
-
-### Method 1: Interactive
-
-Run the generator and provide credentials when prompted:
+## TL;DR
 
 ```bash
-python -m easy_acumatica.generate_stubs
+generate-stubs --url "https://your-instance.acumatica.com" \
+               --username "your-username" \
+               --password "your-password" \
+               --tenant "your-tenant"
 ```
 
-### Method 2: Command Line Arguments
+That's it. Restart your IDE if it doesn't immediately pick up the types.
+**No `settings.json`, `mypy.ini`, or `stubPath` config required** — the
+stubs are written into the installed `easy_acumatica` package directory
+itself, alongside its existing `py.typed` marker. PEP 561 compliant
+type checkers find them automatically.
+
+## What gets generated
+
+The generator writes seven `.pyi` files into the package install directory:
+
+```
+{site-packages}/easy_acumatica/
+├── __init__.pyi      # package re-exports
+├── client.pyi        # AcumaticaClient + service attributes (introspected)
+├── core.pyi          # BaseService / BaseDataClassModel
+├── models.pyi        # one stub per dynamically-generated dataclass
+├── services.pyi      # one stub per generated service
+├── odata.pyi         # QueryOptions, Filter, F factory
+├── batch.pyi         # BatchCall + helpers
+└── py.typed          # already shipped — not re-written
+```
+
+You can find this directory by running:
 
 ```bash
-python -m easy_acumatica.generate_stubs \
-    --url "https://your-instance.acumatica.com" \
-    --username "your-username" \
-    --password "your-password" \
-    --tenant "your-tenant" \
-    --output-dir "./my-stubs"
+python -c "import easy_acumatica; print(easy_acumatica.__file__)"
 ```
 
-### Method 3: Environment Variables
+## How credentials are loaded
 
-Create a .env file with your credentials:
+In priority order:
 
-```env
-ACUMATICA_URL=https://your-instance.acumatica.com
-ACUMATICA_USERNAME=your-username
-ACUMATICA_PASSWORD=your-password
-ACUMATICA_TENANT=your-tenant
-ACUMATICA_ENDPOINT_VERSION=24.200.001
-```
-
-Then run:
+1. `--url`, `--username`, `--password`, `--tenant`, `--endpoint-version`,
+   `--endpoint-name` command-line flags
+2. `ACUMATICA_*` env vars in a `.env` file in your current directory
+3. Interactive prompts for anything still missing (passwords use
+   `getpass`, not echoed)
 
 ```bash
-python -m easy_acumatica.generate_stubs
+# Loads from .env automatically
+generate-stubs
+
+# Or specify on the command line
+generate-stubs --url ... --username ... --password ... --tenant ...
 ```
 
-## Generated Structure
+## When to regenerate
 
-The generator creates a `stubs/` directory with the following files:
+Stubs are tied to a specific Acumatica instance + endpoint version.
+Regenerate when:
 
+- You connect to a different Acumatica tenant
+- The schema changes server-side (new customization deployed,
+  fields added/removed, etc.)
+- You bump `easy_acumatica` to a version that adds new client methods
+
+Stubs are **per-installation** — if you have multiple Acumatica instances
+with different schemas, you'll need to switch between them by regenerating.
+For that case, see "Writing stubs elsewhere" below.
+
+## Writing stubs elsewhere (Lambda, read-only installs, multi-tenant)
+
+Pass `--output-dir` to write to a custom location:
+
+```bash
+generate-stubs --output-dir ./my-stubs --url ... --username ... ...
 ```
-stubs/
-├── __init__.pyi        # Package exports
-├── batch.pyi           # Batch operations
-├── client.pyi          # Main client class
-├── core.pyi            # Base classes
-├── models.pyi          # Your Acumatica models
-├── odata.pyi           # Query builder
-├── services.pyi        # Your Acumatica services
-└── py.typed            # PEP 561 marker
-```
 
-## Using the Stubs
+In this mode the generator also writes its own `py.typed` marker so the
+output directory is self-contained. **You must point your IDE/type
+checker at it manually:**
 
-### VSCode Setup
+### VSCode (Pylance)
 
-1. Generate stubs in your project directory
-2. VSCode's Pylance will automatically detect them
-3. Optional: Add to settings.json:
+`.vscode/settings.json`:
 
 ```json
 {
-    "python.analysis.typeCheckingMode": "basic",
-    "python.analysis.stubPath": "./stubs"
+    "python.analysis.stubPath": "./my-stubs"
 }
 ```
 
-### PyCharm Setup
+For Pylance to pick this up, the directory passed to `stubPath` is
+treated as a search root for stub *packages*. The default inline-mode
+flow avoids this problem entirely; only worry about it if you have to
+use `--output-dir`.
 
-1. Generate stubs in your project directory
-2. Go to Settings > Project > Python Interpreter
-3. PyCharm should automatically detect the stubs
-4. If not, mark the stubs directory as "Sources Root"
+### mypy
 
-### Mypy Setup
-
-Create or update mypy.ini:
+`mypy.ini`:
 
 ```ini
 [mypy]
-mypy_path = ./stubs
+mypy_path = ./my-stubs
 ```
 
-Then run:
+### PyCharm
 
-```bash
-python -m mypy your_code.py
-```
+Settings → Project → Python Interpreter, then mark the stubs dir as
+"Sources Root."
 
-## Verification
+## Verifying it worked
 
-Test that stubs are working:
+In any Python file:
 
 ```python
 from easy_acumatica import AcumaticaClient
 
-# You should see type hints and autocompletion
-client = AcumaticaClient(
-    base_url="https://demo.acumatica.com",
-    username="admin",
-    password="password",
-    tenant="Company"
+client = AcumaticaClient(...)
+client.contact.get_list(  # ← IDE should show full signature on hover
+    options=...           # ← IDE should suggest QueryOptions
 )
-
-# These should show type hints in your IDE
-customer = client.models.Customer(CustomerID="TEST001")
-result = client.customer.put_entity(customer)
 ```
+
+If hovering on `.get_list` shows a signature with `options: Optional[QueryOptions]`
+and a typed return value, you're done.
 
 ## Troubleshooting
 
-### No Type Hints in VSCode
+### No type hints at all
 
-1. Restart VSCode after generating stubs
-2. Check that Python extension and Pylance are installed
-3. Verify stub location matches your configuration
-4. Check VSCode Output > Python for errors
+1. Restart the IDE (Pylance caches aggressively).
+2. Confirm stubs were written: `ls "$(python -c 'import easy_acumatica, os; print(os.path.dirname(easy_acumatica.__file__))')"/*.pyi`
+3. If you see `.pyi` files but still no hints, check the IDE's Python
+   extension is using the same interpreter you ran `generate-stubs` against.
 
-### Mypy Errors
+### Specific service or model unknown
 
-Ensure mypy_path in mypy.ini points to the correct stubs directory:
+If `client.foo.get_list()` says "unknown attribute," your stubs are out
+of date relative to the live schema. Regenerate.
 
-```bash
-python -m mypy --config-file mypy.ini your_code.py
-```
+### Permission denied writing stubs
 
-### PyCharm Not Recognizing Stubs
+Your install dir is read-only (e.g. system Python on macOS, locked-down
+container). Two options:
 
-1. File > Invalidate Caches and Restart
-2. Verify stubs directory is marked as Sources Root
-3. Check Python interpreter is correctly set
+- Use a virtualenv: `python -m venv .venv && .venv/bin/pip install easy_acumatica && .venv/bin/generate-stubs ...`
+- Or use `--output-dir` and configure your IDE manually (see above).
 
-## Advanced Options
+### Editable installs (`pip install -e .`)
 
-### Custom Output Directory
+Stubs land in `src/easy_acumatica/`. They're listed in `.gitignore` so
+they don't pollute commits. Each developer regenerates against their own
+instance.
 
-```bash
-python -m easy_acumatica.generate_stubs --output-dir "./custom-location"
-```
+## Important notes
 
-### Specific Endpoint Version
+- Stubs only affect type checking and IDE support — they have zero
+  runtime impact.
+- The generator runs the full `AcumaticaClient` initialization, so it
+  hits your Acumatica instance the same way a real connection would.
+  Treat it as a one-time cost.
+- Different Acumatica instances may need different stubs — there's no
+  universal stub set.
 
-```bash
-python -m easy_acumatica.generate_stubs \
-    --endpoint-version "23.200.001" \
-    --endpoint-name "Custom"
-```
-
-## Important Notes
-
-- Stubs must be regenerated when your Acumatica schema changes
-- Stubs are only for type checking and IDE support
-- They do not affect runtime behavior
-- Different Acumatica instances may require different stubs
-
-## Additional Resources
+## Resources
 
 - [PEP 561: Distributing Type Information](https://www.python.org/dev/peps/pep-0561/)
-- [MyPy Stub Files Documentation](https://mypy.readthedocs.io/en/stable/stubs.html)
-- [Pylance Documentation](https://github.com/microsoft/pylance-release)
-
----
-
-Need help? Open an issue on [GitHub](https://github.com/Nioron07/Easy-Acumatica/issues) with:
-- Python version
-- IDE and version
-- Output from stub generation
-- Any error messages
+- [Pylance documentation](https://github.com/microsoft/pylance-release)
+- [mypy stub files](https://mypy.readthedocs.io/en/stable/stubs.html)

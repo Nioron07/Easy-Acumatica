@@ -48,9 +48,9 @@ def test_client_and_model_structure(live_server_url):
     assert 'List' in str(annotations['files'])
     assert 'FileLink' in str(annotations['files'])
 
-    print("\n✅ Client initialization successful!")
-    print("✅ Dynamic service and all methods created correctly.")
-    print("✅ Dynamic model 'TestModel' created with correct field structure and types.")
+    print("\n Client initialization successful!")
+    print(" Dynamic service and all methods created correctly.")
+    print(" Dynamic model 'TestModel' created with correct field structure and types.")
 
 
 def test_inquiries_service_generation(live_server_url):
@@ -103,9 +103,9 @@ def test_inquiries_service_generation(live_server_url):
         assert hasattr(inquiries_service, expected_method), \
             f"EntitySet '{original_name}' should create method '{expected_method}'"
 
-    print("\n✅ Inquiries service created successfully!")
-    print(f"✅ Generated {len(expected_inquiry_methods)} inquiry methods from XML metadata.")
-    print("✅ Method names properly formatted from EntitySet names.")
+    print("\n Inquiries service created successfully!")
+    print(f" Generated {len(expected_inquiry_methods)} inquiry methods from XML metadata.")
+    print(" Method names properly formatted from EntitySet names.")
 
 
 def test_inquiry_methods_have_docstrings(live_server_url):
@@ -153,9 +153,9 @@ def test_inquiry_methods_have_docstrings(live_server_url):
     assert "Phone" in customer_docstring
     assert "Email" in customer_docstring
 
-    print("\n✅ Inquiry methods have proper docstrings!")
-    print("✅ Docstrings include field information from XML metadata.")
-    print("✅ Docstrings follow consistent format with Args and Returns sections.")
+    print("\n Inquiry methods have proper docstrings!")
+    print(" Docstrings include field information from XML metadata.")
+    print(" Docstrings follow consistent format with Args and Returns sections.")
 
 
 def test_xml_metadata_endpoint_access(live_server_url):
@@ -193,5 +193,5 @@ def test_xml_metadata_endpoint_access(live_server_url):
     assert "Customer List" in entity_set_names
     assert "Inventory Items" in entity_set_names
 
-    print("\n✅ XML metadata endpoint is accessible and returns valid OData XML!")
-    print(f"✅ Found {len(entity_sets)} EntitySets in metadata.")
+    print("\n XML metadata endpoint is accessible and returns valid OData XML!")
+    print(f" Found {len(entity_sets)} EntitySets in metadata.")

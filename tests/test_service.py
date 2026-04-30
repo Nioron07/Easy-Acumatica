@@ -224,14 +224,14 @@ def test_get_signature_basic(client):
     assert 'test' in sig.lower()
     assert 'get_list' in sig
 
-    print(f"\n✅ service.get_signature returned: {sig}")
+    print(f"\n service.get_signature returned: {sig}")
 
 def test_get_signature_invalid_method(client):
     """Test service.get_signature raises ValueError for non-existent method."""
     with pytest.raises(ValueError, match="Method 'invalid_method' not found"):
         client.test.get_signature('invalid_method')
 
-    print("\n✅ service.get_signature correctly raised ValueError for invalid method")
+    print("\n service.get_signature correctly raised ValueError for invalid method")
 
 
 # --- SNAKE_CASE CONVERSION TESTS ---

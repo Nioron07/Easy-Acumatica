@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 """
-Enhanced Generate PEP 561 compliant stub files for easy-acumatica with proper typing.
+Generate PEP 561 inline stubs for easy-acumatica.
 
-This script generates .pyi stub files in a proper structure:
-- stubs/
-  - __init__.pyi
-  - client.pyi  
-  - models.pyi
-  - services.pyi
-  - core.pyi
-  - odata.pyi
-  - py.typed
+By default, .pyi files are written into the installed easy_acumatica
+package directory so Pyright/Pylance/mypy auto-discover them via the
+existing py.typed marker (no IDE configuration required). Pass
+--output-dir to write elsewhere (e.g. for read-only installs); in that
+mode a self-contained py.typed is also emitted.
+
+Files written:
+  __init__.pyi  client.pyi  core.pyi  models.pyi
+  services.pyi  odata.pyi   batch.pyi
 """
 
 import argparse
 import getpass
 import inspect
-import easy_acumatica
-import os
-import sys
 from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, get_type_hints
+from typing import Any, Dict, List, Type, get_type_hints
 
+import easy_acumatica
 from easy_acumatica.client import AcumaticaClient
 from easy_acumatica.core import BaseDataClassModel, BaseService
 
@@ -31,26 +29,31 @@ def get_type_annotation_string(annotation: Any) -> str:
     """Convert a type annotation to its string representation for stub files."""
     if annotation is inspect._empty:
         return "Any"
-    
+
     # Handle None type
     if annotation is type(None):
         return "None"
-    
+
     # Get the string representation
     type_str = str(annotation)
-    
-    # Clean up common patterns
+
+    # Clean up common patterns. Stripping `easy_acumatica.models.` is what
+    # makes nested model types (e.g. SalesOrder.ShipToAddress: Address) work
+    # in the stub: the file IS that module, so the FQN prefix would resolve
+    # to "easy_acumatica.models.easy_acumatica.models.Address" through the
+    # type-checker's name resolution.
     replacements = {
         "<class '": "",
         "'>": "",
         "typing.": "",
         "builtins.": "",
+        "easy_acumatica.models.": "",
         "NoneType": "None",
     }
-    
+
     for old, new in replacements.items():
         type_str = type_str.replace(old, new)
-    
+
     # Handle forward references
     if "ForwardRef" in type_str:
         # Extract the string inside ForwardRef
@@ -58,66 +61,118 @@ def get_type_annotation_string(annotation: Any) -> str:
         end = type_str.find("')")
         if start > 1 and end > start:
             type_str = f"'{type_str[start:end]}'"
-    
+
     return type_str
 
 
 def generate_model_stub(model_class: Type[BaseDataClassModel]) -> List[str]:
     """Generate stub lines for a single dataclass model."""
     lines = []
-    
+
     # Add @dataclass decorator
     lines.append("@dataclass")
     lines.append(f"class {model_class.__name__}(BaseDataClassModel):")
-    
+
     # Add docstring if it exists
     if model_class.__doc__:
         # Format docstring properly
-        doc_lines = model_class.__doc__.strip().split('\n')
+        doc_lines = model_class.__doc__.strip().split("\n")
         if len(doc_lines) == 1:
             lines.append(f'    """{doc_lines[0]}"""')
         else:
             lines.append('    """')
             for doc_line in doc_lines:
-                lines.append(f'    {doc_line}' if doc_line.strip() else '    ')
+                lines.append(f"    {doc_line}" if doc_line.strip() else "    ")
             lines.append('    """')
-    
+
     # Get type hints for the class
     try:
         hints = get_type_hints(model_class)
     except:
         # If we can't get type hints, fall back to field annotations
         hints = {}
-        if hasattr(model_class, '__annotations__'):
+        if hasattr(model_class, "__annotations__"):
             hints = model_class.__annotations__
-    
+
     # Get dataclass fields
     dataclass_fields = fields(model_class) if is_dataclass(model_class) else []
-    
+
     if not dataclass_fields and not hints:
         lines.append("    ...")
     else:
         # Generate field definitions
         for field in dataclass_fields:
             field_name = field.name
-            
+
             # Skip internal fields
-            if field_name.startswith('_'):
+            if field_name.startswith("_"):
                 continue
-            
+
             # Get type annotation
             if field_name in hints:
                 type_str = get_type_annotation_string(hints[field_name])
             else:
                 type_str = "Any"
-            
+
             # All fields have default values in our models
             lines.append(f"    {field_name}: {type_str} = ...")
-    
+
     return lines
 
 
-def get_return_type_from_schema(operation_details: Dict[str, Any], schema: Dict[str, Any], default_type: str = "Any") -> str:
+def render_introspected_signature(
+    method: Any,
+    *,
+    indent: str = "    ",
+    include_self: bool = True,
+) -> str:
+    """
+    Render a stub line for ``method`` based on its runtime signature.
+
+    Falls back to a permissive ``(*args, **kwargs) -> Any`` shape if the
+    signature can't be introspected (e.g. C-implemented or builtin).
+    Defaults are rendered as ``...`` so we don't have to serialize values.
+    """
+    method_name = getattr(method, "__name__", "<unknown>")
+    try:
+        sig = inspect.signature(method)
+    except (ValueError, TypeError):
+        return f"{indent}def {method_name}(self, *args: Any, **kwargs: Any) -> Any: ..."
+
+    parts: List[str] = []
+    for name, param in sig.parameters.items():
+        if name == "self":
+            if include_self:
+                parts.append("self")
+            continue
+        rendered = name
+        if param.annotation is not inspect.Parameter.empty:
+            rendered += f": {get_type_annotation_string(param.annotation)}"
+        if param.default is not inspect.Parameter.empty:
+            rendered += " = ..."
+        if param.kind == inspect.Parameter.VAR_POSITIONAL:
+            rendered = f"*{name}"
+            if param.annotation is not inspect.Parameter.empty:
+                rendered += f": {get_type_annotation_string(param.annotation)}"
+        elif param.kind == inspect.Parameter.VAR_KEYWORD:
+            rendered = f"**{name}"
+            if param.annotation is not inspect.Parameter.empty:
+                rendered += f": {get_type_annotation_string(param.annotation)}"
+        parts.append(rendered)
+
+    if method_name == "__init__":
+        return_anno = "None"
+    elif sig.return_annotation is not inspect.Signature.empty:
+        return_anno = get_type_annotation_string(sig.return_annotation)
+    else:
+        return_anno = "Any"
+
+    return f"{indent}def {method_name}({', '.join(parts)}) -> {return_anno}: ..."
+
+
+def get_return_type_from_schema(
+    operation_details: Dict[str, Any], schema: Dict[str, Any], default_type: str = "Any"
+) -> str:
     """Extract return type from OpenAPI operation details."""
     if not operation_details:
         return default_type
@@ -153,7 +208,7 @@ def get_return_type_from_schema(operation_details: Dict[str, Any], schema: Dict[
                     "integer": "int",
                     "number": "float",
                     "boolean": "bool",
-                    "object": "Dict[str, Any]"
+                    "object": "Dict[str, Any]",
                 }
                 return type_mapping.get(response_schema["type"], "Any")
 
@@ -161,25 +216,22 @@ def get_return_type_from_schema(operation_details: Dict[str, Any], schema: Dict[
 
 
 def generate_typed_method_signature(
-    service_name: str,
-    method_name: str,
-    method: Any,
-    schema: Dict[str, Any]
+    service_name: str, method_name: str, method: Any, schema: Dict[str, Any]
 ) -> List[str]:
     """Generate a typed method signature based on OpenAPI schema."""
     lines = []
 
     # Map method names to their likely OpenAPI operation patterns
     operation_patterns = {
-        'get_list': 'GetList',
-        'get_by_id': 'GetById',
-        'get_by_keys': 'GetByKeys',
-        'put_entity': 'PutEntity',
-        'delete_by_id': 'DeleteById',
-        'delete_by_keys': 'DeleteByKeys',
-        'put_file': 'PutFile',
-        'get_files': 'GetFiles',
-        'get_ad_hoc_schema': 'GetAdHocSchema'
+        "get_list": "GetList",
+        "get_by_id": "GetById",
+        "get_by_keys": "GetByKeys",
+        "put_entity": "PutEntity",
+        "delete_by_id": "DeleteById",
+        "delete_by_keys": "DeleteByKeys",
+        "put_file": "PutFile",
+        "get_files": "GetFiles",
+        "get_ad_hoc_schema": "GetAdHocSchema",
     }
 
     # Find the operation in the schema
@@ -187,15 +239,17 @@ def generate_typed_method_signature(
     operation_id_pattern = None
 
     # Handle invoke_action methods
-    if method_name.startswith('invoke_action_'):
-        action_name = method_name.replace('invoke_action_', '').replace('_', '')
+    if method_name.startswith("invoke_action_"):
+        action_name = method_name.replace("invoke_action_", "").replace("_", "")
         operation_id_pattern = f"{service_name}_InvokeAction_"
         # Look for specific action or generic custom action
         for path, path_info in schema.get("paths", {}).items():
             for http_method, details in path_info.items():
                 operation_id = details.get("operationId", "")
-                if (operation_id.startswith(operation_id_pattern) and
-                    action_name.lower() in operation_id.lower()):
+                if (
+                    operation_id.startswith(operation_id_pattern)
+                    and action_name.lower() in operation_id.lower()
+                ):
                     operation_details = details
                     break
             if operation_details:
@@ -212,109 +266,143 @@ def generate_typed_method_signature(
                         break
                 if operation_details:
                     break
-    
+
     # Get return type from schema
-    return_type = get_return_type_from_schema(operation_details, schema, default_type=service_name)
+    return_type = get_return_type_from_schema(
+        operation_details, schema, default_type=service_name
+    )
 
     # Generate method signature based on operation type
-    if method_name == 'get_list':
+    if method_name == "get_list":
         # For get_list, always return List of the service entity
-        return_type = f"List[{service_name}]" if operation_details else f"List[{service_name}]"
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        options: Optional[QueryOptions] = None,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {return_type}:",
-        ])
-    elif method_name == 'get_by_id':
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        entity_id: Union[str, List[str]],",
-            "        options: Optional[QueryOptions] = None,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {return_type}:",
-        ])
-    elif method_name == 'get_by_keys':
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        options: Optional[QueryOptions] = None,",
-            "        api_version: Optional[str] = None,",
-            "        **key_fields: Any",
-            f"    ) -> {return_type}:",
-        ])
-    elif method_name == 'query_custom_endpoint':
+        return_type = (
+            f"List[{service_name}]" if operation_details else f"List[{service_name}]"
+        )
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        options: Optional[QueryOptions] = None,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {return_type}:",
+            ]
+        )
+    elif method_name == "get_by_id":
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        entity_id: Union[str, List[str]],",
+                "        options: Optional[QueryOptions] = None,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {return_type}:",
+            ]
+        )
+    elif method_name == "get_by_keys":
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        options: Optional[QueryOptions] = None,",
+                "        api_version: Optional[str] = None,",
+                "        **key_fields: Any",
+                f"    ) -> {return_type}:",
+            ]
+        )
+    elif method_name == "query_custom_endpoint":
         # Custom endpoint query method
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        data: Optional[Dict[str, Any]] = None,",
-            "        options: Optional[QueryOptions] = None,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {return_type}:",
-        ])
-    elif method_name == 'put_entity':
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            f"        data: Union[Dict[str, Any], {service_name}],",
-            "        options: Optional[QueryOptions] = None,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {return_type}:",
-        ])
-    elif method_name in ['delete_by_id', 'delete_by_keys']:
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        data: Optional[Dict[str, Any]] = None,",
+                "        options: Optional[QueryOptions] = None,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {return_type}:",
+            ]
+        )
+    elif method_name == "put_entity":
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                f"        data: Union[Dict[str, Any], {service_name}],",
+                "        options: Optional[QueryOptions] = None,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {return_type}:",
+            ]
+        )
+    elif method_name in ["delete_by_id", "delete_by_keys"]:
         # Deletes typically return None/void
-        delete_return_type = get_return_type_from_schema(operation_details, schema, default_type="None")
-        if delete_return_type == service_name:  # If it defaults to service name, use None
+        delete_return_type = get_return_type_from_schema(
+            operation_details, schema, default_type="None"
+        )
+        if (
+            delete_return_type == service_name
+        ):  # If it defaults to service name, use None
             delete_return_type = "None"
-        if method_name == 'delete_by_id':
+        if method_name == "delete_by_id":
             params = [
                 "        self,",
                 "        entity_id: Union[str, List[str]],",
-                "        api_version: Optional[str] = None"
+                "        api_version: Optional[str] = None",
             ]
         else:
             params = [
                 "        self,",
                 "        api_version: Optional[str] = None,",
-                "        **key_fields: Any"
+                "        **key_fields: Any",
             ]
-        lines.extend([f"    def {method_name}("] + params + [f"    ) -> {delete_return_type}:"])
-    elif method_name == 'put_file':
-        file_return_type = get_return_type_from_schema(operation_details, schema, default_type="None")
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        entity_id: str,",
-            "        filename: str,",
-            "        data: bytes,",
-            "        comment: Optional[str] = None,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {file_return_type}:",
-        ])
-    elif method_name == 'get_files':
-        files_return_type = get_return_type_from_schema(operation_details, schema, default_type="List[Dict[str, Any]]")
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        entity_id: str,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {files_return_type}:",
-        ])
-    elif method_name == 'get_ad_hoc_schema':
-        schema_return_type = get_return_type_from_schema(operation_details, schema, default_type=service_name)
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {schema_return_type}:",
-        ])
-    elif method_name.startswith('invoke_action_'):
+        lines.extend(
+            [f"    def {method_name}("] + params + [f"    ) -> {delete_return_type}:"]
+        )
+    elif method_name == "put_file":
+        file_return_type = get_return_type_from_schema(
+            operation_details, schema, default_type="None"
+        )
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        entity_id: str,",
+                "        filename: str,",
+                "        data: bytes,",
+                "        comment: Optional[str] = None,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {file_return_type}:",
+            ]
+        )
+    elif method_name == "get_files":
+        files_return_type = get_return_type_from_schema(
+            operation_details, schema, default_type="List[Dict[str, Any]]"
+        )
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        entity_id: str,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {files_return_type}:",
+            ]
+        )
+    elif method_name == "get_ad_hoc_schema":
+        schema_return_type = get_return_type_from_schema(
+            operation_details, schema, default_type=service_name
+        )
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {schema_return_type}:",
+            ]
+        )
+    elif method_name.startswith("invoke_action_"):
         # For action methods, try to determine the correct input and return types from schema
         input_type = "Any"
-        action_return_type = get_return_type_from_schema(operation_details, schema, default_type=f"Optional[{service_name}]")
+        action_return_type = get_return_type_from_schema(
+            operation_details, schema, default_type=f"Optional[{service_name}]"
+        )
 
         if operation_details:
             request_body = operation_details.get("requestBody", {})
@@ -324,86 +412,106 @@ def generate_typed_method_signature(
             if schema_ref:
                 input_type = schema_ref.split("/")[-1]
 
-        lines.extend([
-            f"    def {method_name}(",
-            "        self,",
-            f"        invocation: {input_type},",
-            "        api_version: Optional[str] = None",
-            f"    ) -> {action_return_type}:",
-        ])
+        lines.extend(
+            [
+                f"    def {method_name}(",
+                "        self,",
+                f"        invocation: {input_type},",
+                "        api_version: Optional[str] = None",
+                f"    ) -> {action_return_type}:",
+            ]
+        )
     else:
         # Fallback for unknown methods
-        lines.extend([
-            f"    def {method_name}(self, *args, **kwargs) -> Any:"
-        ])
-    
+        lines.extend([f"    def {method_name}(self, *args, **kwargs) -> Any:"])
+
     # Add docstring if it exists
-    if hasattr(method, '__doc__') and method.__doc__:
-        doc_lines = method.__doc__.strip().split('\n')
+    if hasattr(method, "__doc__") and method.__doc__:
+        doc_lines = method.__doc__.strip().split("\n")
         if len(doc_lines) == 1:
             lines.append(f'        """{doc_lines[0]}"""')
         else:
             lines.append('        """')
             for doc_line in doc_lines:
-                lines.append(f'        {doc_line}' if doc_line.strip() else '        ')
+                lines.append(f"        {doc_line}" if doc_line.strip() else "        ")
             lines.append('        """')
-    
+
     lines.append("        ...")
-    
+
     return lines
 
 
-def generate_service_stub(service_name: str, service_instance: BaseService, schema: Dict[str, Any]) -> List[str]:
+def generate_service_stub(
+    service_name: str, service_instance: BaseService, schema: Dict[str, Any]
+) -> List[str]:
     """Generate stub lines for a service class with proper typing from OpenAPI schema."""
     lines = []
-    
+
     # Generate class definition
     lines.append(f"class {service_name}Service(BaseService):")
-    
+
     # Get all public methods of the service
     methods = []
     for attr_name in dir(service_instance):
-        if attr_name.startswith('_'):
+        if attr_name.startswith("_"):
             continue
-        
+
         attr = getattr(service_instance, attr_name)
         if callable(attr) and not isinstance(attr, type):
             methods.append((attr_name, attr))
-    
+
     if not methods:
         lines.append("    ...")
     else:
         # Sort methods alphabetically for consistent output
         methods.sort(key=lambda x: x[0])
-        
+
         for method_name, method in methods:
             # Generate typed method signature based on OpenAPI schema
             method_signature = generate_typed_method_signature(
                 service_name, method_name, method, schema
             )
             lines.extend(method_signature)
-    
+
     return lines
 
 
-def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
+def create_stub_structure(
+    client: AcumaticaClient,
+    output_dir: Path,
+    inline: bool = False,
+) -> None:
     """
-    Generate stub files in a proper structure in a stubs/ folder.
+    Generate ``.pyi`` stub files into ``output_dir``.
+
+    When ``inline=True``, the caller is asking for PEP 561 inline stubs
+    written next to the package's ``.py`` files - the ``py.typed`` marker
+    is already shipped with the package, so we skip writing it. When
+    ``inline=False`` (user passed ``--output-dir``), the destination is
+    self-contained, so we also write a ``py.typed``.
     """
     print("Generating enhanced stub files with proper structure...")
-    
-    # Create stubs directory
-    stubs_dir = output_dir / "stubs"
-    stubs_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    stubs_dir = output_dir
+    try:
+        stubs_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise SystemExit(
+            f"Cannot write to {stubs_dir}: {e}\n"
+            "Pass --output-dir to write somewhere else "
+            "(you'll need to configure your IDE's stubPath manually)."
+        )
+
     # Get the schema for typing information
     schema = client._fetch_schema(client.endpoint_name, client.endpoint_version)
-    
-    # Create py.typed file to mark package as supporting type checking
-    py_typed_path = stubs_dir / "py.typed"
-    py_typed_path.write_text("")
-    print(f"✅ Created py.typed marker at {py_typed_path}")
-    
+
+    # PEP 561 marker - only when destination is external (the package
+    # already ships its own py.typed alongside the .py files).
+    if not inline:
+        py_typed_path = stubs_dir / "py.typed"
+        py_typed_path.write_text("")
+        print(f" Created py.typed marker at {py_typed_path}")
+
     # Generate __init__.pyi
     print("Generating __init__.pyi...")
     init_lines = [
@@ -420,9 +528,9 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         '    "create_batch_from_filters"',
         "]",
     ]
-    (stubs_dir / "__init__.pyi").write_text("\n".join(init_lines))
-    print("✅ Generated __init__.pyi")
-    
+    (stubs_dir / "__init__.pyi").write_text("\n".join(init_lines), encoding="utf-8")
+    print(" Generated __init__.pyi")
+
     # Generate core.pyi
     print("Generating core.pyi...")
     core_lines = [
@@ -445,9 +553,9 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         "    def __init__(self, client: AcumaticaClient, entity_name: str, endpoint_name: str = 'Default') -> None: ...",
         "",
     ]
-    (stubs_dir / "core.pyi").write_text("\n".join(core_lines))
-    print("✅ Generated core.pyi")
-    
+    (stubs_dir / "core.pyi").write_text("\n".join(core_lines), encoding="utf-8")
+    print(" Generated core.pyi")
+
     # Generate odata.pyi
     print("Generating odata.pyi...")
     odata_lines = [
@@ -500,9 +608,9 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         "    def copy(self, **kwargs: Any) -> QueryOptions: ...",
         "",
     ]
-    (stubs_dir / "odata.pyi").write_text("\n".join(odata_lines))
-    print("✅ Generated odata.pyi")
-    
+    (stubs_dir / "odata.pyi").write_text("\n".join(odata_lines), encoding="utf-8")
+    print(" Generated odata.pyi")
+
     # Generate batch.pyi
     print("Generating batch.pyi...")
     batch_lines = [
@@ -518,7 +626,7 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         "    execution_time: float = 0.0",
         "    call_index: int = 0",
         "",
-        "@dataclass", 
+        "@dataclass",
         "class BatchCallStats:",
         "    total_calls: int = 0",
         "    successful_calls: int = 0",
@@ -569,41 +677,52 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         "def create_batch_from_ids(service: Any, entity_ids: List[str], method_name: str = 'get_by_id', **method_kwargs: Any) -> BatchCall: ...",
         "def create_batch_from_filters(service: Any, filters: List[Any], method_name: str = 'get_list', **method_kwargs: Any) -> BatchCall: ...",
     ]
-    (stubs_dir / "batch.pyi").write_text("\n".join(batch_lines))
-    print("✅ Generated batch.pyi")
-    
+    (stubs_dir / "batch.pyi").write_text("\n".join(batch_lines), encoding="utf-8")
+    print(" Generated batch.pyi")
+
     # Generate models.pyi
     print("Generating models.pyi...")
     model_lines = [
         "from __future__ import annotations",
-        "from typing import Any, List, Optional, Union",
+        "from typing import Any, List, Optional, Type, Union",
         "from dataclasses import dataclass",
         "from datetime import datetime",
-        "import easy_acumatica",
         "from .core import BaseDataClassModel",
-        ""
+        "",
     ]
-    
+
     # Get all model classes from client.models
     model_classes = []
     for attr_name in dir(client.models):
-        if not attr_name.startswith('_'):
+        if not attr_name.startswith("_"):
             attr = getattr(client.models, attr_name)
             if isinstance(attr, type) and issubclass(attr, BaseDataClassModel):
                 model_classes.append((attr_name, attr))
-    
+
     # Sort models alphabetically
     model_classes.sort(key=lambda x: x[0])
-    
+
     # Generate stub for each model
     for model_name, model_class in model_classes:
         model_lines.extend(generate_model_stub(model_class))
         model_lines.append("")  # Empty line between classes
-    
+
+    # Catch-all for dynamically added models the runtime registers but the
+    # stub may not enumerate (e.g. the user's stubs are slightly out of
+    # date relative to the live schema). Lets `client.models.X` typecheck
+    # as a model class instead of "unknown attribute".
+    model_lines.extend(
+        [
+            "",
+            "def __getattr__(name: str) -> Type[BaseDataClassModel]: ...",
+            "",
+        ]
+    )
+
     # Write models.pyi
-    (stubs_dir / "models.pyi").write_text("\n".join(model_lines))
-    print(f"✅ Generated models.pyi with {len(model_classes)} models")
-    
+    (stubs_dir / "models.pyi").write_text("\n".join(model_lines), encoding="utf-8")
+    print(f" Generated models.pyi with {len(model_classes)} models")
+
     # Generate services.pyi
     print("Generating services.pyi...")
     service_lines = [
@@ -613,92 +732,75 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         "from .odata import QueryOptions",
         "from .models import *  # Import all model types",
         "",
-        ""
+        "",
     ]
-    
-    # Get all service attributes from the client
+
+    # The runtime is the source of truth. Each service instance carries its
+    # canonical PascalCase entity_name; the matching client attribute name
+    # is to_snake_case(entity_name). Reverse-engineering from the attribute
+    # is impossible in the general case (e.g. "address" vs "addresses"),
+    # so we read both directly off the registered services.
+    from .service_factory import to_snake_case
+
+    # Build a map: id(service_instance) -> attr_name on the client.
+    # Some services may be reachable via multiple attributes; pick the
+    # first match deterministically by sorting attribute names.
+    instance_to_attr: Dict[int, str] = {}
+    for attr_name in sorted(dir(client)):
+        if attr_name.startswith("_"):
+            continue
+        try:
+            value = getattr(client, attr_name)
+        except Exception:
+            continue
+        if isinstance(value, BaseService) and id(value) not in instance_to_attr:
+            instance_to_attr[id(value)] = attr_name
+
     services = []
-    for attr_name in dir(client):
-        if not attr_name.startswith('_') and attr_name not in ['models', 'session', 'base_url',
-                                                                'tenant', 'username', 'verify_ssl',
-                                                                'persistent_login', 'retry_on_idle_logout',
-                                                                'endpoint_name', 'endpoint_version',
-                                                                'timeout', 'endpoints', 'cache_enabled',
-                                                                'cache_dir', 'cache_ttl_hours', 'force_rebuild']:
-            attr = getattr(client, attr_name)
-            if isinstance(attr, BaseService):
-                # For custom endpoints, use the entity name directly as the service name
-                # Otherwise, convert attribute name to PascalCase service name
-                if hasattr(attr, '_custom_endpoint_metadata') and attr._custom_endpoint_metadata:
-                    # For custom endpoints, use the entity name as the service name
-                    service_name = attr.entity_name
-                else:
-                    # Handle proper English pluralization rules for regular services
-                    clean_attr_name = attr_name
-                    if attr_name.endswith('s') and len(attr_name) > 1:
-                        # Handle special cases and common English pluralization patterns
-                        if attr_name.endswith('ies'):
-                            # companies -> company, categories -> category
-                            clean_attr_name = attr_name[:-3] + 'y'
-                        elif attr_name.endswith('ses') or attr_name.endswith('xes') or attr_name.endswith('ches') or attr_name.endswith('shes'):
-                            # addresses -> address, boxes -> box, batches -> batch, dishes -> dish
-                            # but warehouses -> warehouse (keep the 'e')
-                            if attr_name.endswith('houses'):
-                                clean_attr_name = attr_name[:-1]  # Remove just the 's'
-                            else:
-                                clean_attr_name = attr_name[:-2]
-                        elif attr_name.endswith('ves'):
-                            # leaves -> leaf, knives -> knife
-                            clean_attr_name = attr_name[:-3] + 'f'
-                        elif not any(attr_name.endswith(suffix) for suffix in ['ss', 'us', 'is', 'as', 'class']):
-                            # Regular plural (orders -> order), but keep words naturally ending in s (class, address, etc.)
-                            # Check if removing 's' creates a valid word by looking at common patterns
-                            potential_singular = attr_name[:-1]
-                            # If the word without 's' ends in these patterns, it's likely a regular plural
-                            if (potential_singular.endswith('_account') or
-                                potential_singular.endswith('_item') or
-                                potential_singular.endswith('_order') or
-                                potential_singular.endswith('_contact') or
-                                potential_singular.endswith('_customer') or
-                                potential_singular.endswith('_vendor') or
-                                potential_singular.endswith('_employee') or
-                                '_' in potential_singular):  # Most compound words are regular plurals
-                                clean_attr_name = potential_singular
-                            # Special handling for common word endings that might be naturally singular
-                            elif not any(potential_singular.endswith(ending) for ending in ['addres', 'clas', 'proces', 'acces']):
-                                clean_attr_name = potential_singular
+    for entity_name, service in client._service_instances.items():
+        # For custom endpoints (Generic Inquiries), entity_name is already
+        # the canonical name set by the factory. For regular entities, it
+        # matches the OpenAPI tag (e.g. "SalesOrder").
+        attr_name = instance_to_attr.get(id(service)) or to_snake_case(entity_name)
+        services.append((entity_name, attr_name, service))
+    services.sort()
 
-                    parts = clean_attr_name.split('_')
-                    service_name = ''.join(part.title() for part in parts)
-
-                services.append((service_name, attr_name, attr))
-    
     # Generate service class stubs with proper typing
     for service_name, attr_name, service_instance in services:
-        service_stub_lines = generate_service_stub(service_name, service_instance, schema)
+        service_stub_lines = generate_service_stub(
+            service_name, service_instance, schema
+        )
         service_lines.extend(service_stub_lines)
         service_lines.append("")  # Empty line between classes
-    
+
     # Write services.pyi
-    (stubs_dir / "services.pyi").write_text("\n".join(service_lines))
-    print(f"✅ Generated services.pyi with {len(services)} services")
-    
-    # Generate client.pyi
+    (stubs_dir / "services.pyi").write_text("\n".join(service_lines), encoding="utf-8")
+    print(f" Generated services.pyi with {len(services)} services")
+
+    # Generate client.pyi via introspection of the real AcumaticaClient class.
+    # Methods are read with inspect.signature so the stub stays in sync with
+    # whatever is actually on the class - no hand-maintained list to drift.
     print("Generating client.pyi...")
     client_lines = [
         "from __future__ import annotations",
-        "from typing import Any, Dict, List, Optional, Union",
+        "from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union",
         "from pathlib import Path",
         "import requests",
-        "from .services import *  # Import all service types",
+        # Internal types that may appear in introspected method signatures
+        # (e.g. AcumaticaClient.__init__'s `config: Optional[AcumaticaConfig]`).
+        # Importing them up front keeps Pyright/Pylance from flagging the
+        # stub itself as having unresolved references.
+        "from .config import AcumaticaConfig",
+        "from .core import BaseService, BaseDataClassModel",
+        "from .odata import QueryOptions, Filter",
+        "from .services import *  # re-export generated service types",
         "from . import models",
         "",
         "class AcumaticaClient:",
         '    """Main client for interacting with Acumatica API."""',
-        "    ",
-        "    # Configuration attributes",
+        "    # Configuration attributes (set in __init__)",
         "    base_url: str",
-        "    tenant: str", 
+        "    tenant: str",
         "    username: str",
         "    verify_ssl: bool",
         "    persistent_login: bool",
@@ -711,112 +813,96 @@ def create_stub_structure(client: AcumaticaClient, output_dir: Path) -> None:
         "    cache_enabled: bool",
         "    cache_dir: Path",
         "    cache_ttl_hours: int",
+        "    schema_cache_ttl_hours: int",
         "    force_rebuild: bool",
-        "    ",
-        "    # Service attributes"
+        "    models: Any  # the models module - use client.models.<EntityName>",
+        "",
+        "    # Service attributes (one per registered Acumatica entity)",
     ]
-    
+
     for service_name, attr_name, _ in services:
         client_lines.append(f"    {attr_name}: {service_name}Service")
-    
-    client_lines.extend([
-        "    models: Any  # This points to the models module",
-        "    ",
-        "    def __init__(",
-        "        self,",
-        "        base_url: Optional[str] = None,",
-        "        username: Optional[str] = None,",
-        "        password: Optional[str] = None,",
-        "        tenant: Optional[str] = None,",
-        "        branch: Optional[str] = None,",
-        "        locale: Optional[str] = None,",
-        "        verify_ssl: bool = True,",
-        "        persistent_login: bool = True,",
-        "        retry_on_idle_logout: bool = True,",
-        "        endpoint_name: str = 'Default',",
-        "        endpoint_version: Optional[str] = None,",
-        "        config: Optional[Any] = None,",
-        "        rate_limit_calls_per_second: float = 10.0,",
-        "        timeout: Optional[int] = None,",
-        "        cache_methods: bool = False,",
-        "        cache_ttl_hours: int = 24,",
-        "        cache_dir: Optional[Path] = None,",
-        "        force_rebuild: bool = False,",
-        "        env_file: Optional[Union[str, Path]] = None,",
-        "        auto_load_env: bool = True,",
-        "    ) -> None: ...",
-        "    ",
-        "    def login(self) -> int: ...",
-        "    def logout(self) -> int: ...", 
-        "    def close(self) -> None: ...",
-        "    def list_models(self) -> List[str]: ...",
-        "    def list_services(self) -> List[str]: ...",
-        "    def get_model_info(self, model_name: str) -> Dict[str, Any]: ...",
-        "    def get_service_info(self, service_name: str) -> Dict[str, Any]: ...",
-        "    def get_performance_stats(self) -> Dict[str, Any]: ...",
-        "    def clear_cache(self) -> None: ...",
-        "    def help(self, topic: Optional[str] = None) -> None: ...",
-        "    def __enter__(self) -> AcumaticaClient: ...",
-        "    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None: ...",
-    ])
-    
+    client_lines.append("")
+
+    # __init__ first, then every public method - all introspected.
+    client_lines.append(render_introspected_signature(AcumaticaClient.__init__))
+    seen = {"__init__"}
+    method_lines: List[str] = []
+    for name, member in inspect.getmembers(AcumaticaClient, inspect.isfunction):
+        if name in seen:
+            continue
+        # Include public methods + the context-manager dunders.
+        if name.startswith("_") and name not in ("__enter__", "__exit__"):
+            continue
+        seen.add(name)
+        method_lines.append((name, render_introspected_signature(member)))
+
+    method_lines.sort()
+    for _, line in method_lines:
+        client_lines.append(line)
+
     # Write client.pyi
-    (stubs_dir / "client.pyi").write_text("\n".join(client_lines))
-    print("✅ Generated client.pyi")
-    
-    print(f"\n✅ Generated enhanced stub files in {stubs_dir}")
-    print("Folder structure:")
-    print("stubs/")
-    print("├── __init__.pyi")
-    print("├── batch.pyi") 
-    print("├── client.pyi")
-    print("├── core.pyi")
-    print("├── models.pyi")
-    print("├── odata.pyi")
-    print("├── services.pyi")
-    print("└── py.typed")
-    print("\nThese stubs include:")
-    print("- Proper service types in services.pyi")
-    print("- All model imports in services.pyi")
-    print("- Correct return and parameter types")
-    print("- Full action method typing")
+    (stubs_dir / "client.pyi").write_text("\n".join(client_lines), encoding="utf-8")
+    print(f" Generated client.pyi (with {len(method_lines) + 1} introspected methods)")
+
+    print(f"\nGenerated stub files in {stubs_dir}:")
+    for pyi in sorted(stubs_dir.glob("*.pyi")):
+        print(f"  {pyi.name}")
+    if (stubs_dir / "py.typed").exists():
+        print("  py.typed")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate enhanced PEP 561 compliant stub files for easy-acumatica.")
+    parser = argparse.ArgumentParser(
+        description="Generate enhanced PEP 561 compliant stub files for easy-acumatica."
+    )
     parser.add_argument("--url", help="Base URL of the Acumatica instance.")
     parser.add_argument("--username", help="Username for authentication.")
     parser.add_argument("--password", help="Password for authentication.")
     parser.add_argument("--tenant", help="The tenant to connect to.")
     parser.add_argument("--endpoint-version", help="The API endpoint version to use.")
-    parser.add_argument("--endpoint-name", default="Default", help="The API endpoint name.")
-    parser.add_argument("--output-dir", default=".", help="Output directory for stub files.")
+    parser.add_argument(
+        "--endpoint-name", default="Default", help="The API endpoint name."
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Output directory. Defaults to the easy_acumatica package install "
+            "directory so stubs are auto-discovered by Pyright/Pylance/mypy "
+            "(no IDE config needed). Set this to write stubs elsewhere - "
+            "you'll need to point your IDE's stubPath at that directory."
+        ),
+    )
     args = parser.parse_args()
 
     # Try to load from .env file if it exists
     env_path = Path(".env")
     if env_path.exists():
         print("Found .env file, loading configuration...")
-        with open(env_path, 'r') as f:
+        with open(env_path, "r") as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    
+
                     # Set arguments from env if not provided
-                    if key == 'ACUMATICA_URL' and not args.url:
+                    if key == "ACUMATICA_URL" and not args.url:
                         args.url = value
-                    elif key == 'ACUMATICA_USERNAME' and not args.username:
+                    elif key == "ACUMATICA_USERNAME" and not args.username:
                         args.username = value
-                    elif key == 'ACUMATICA_PASSWORD' and not args.password:
+                    elif key == "ACUMATICA_PASSWORD" and not args.password:
                         args.password = value
-                    elif key == 'ACUMATICA_TENANT' and not args.tenant:
+                    elif key == "ACUMATICA_TENANT" and not args.tenant:
                         args.tenant = value
-                    elif key == 'ACUMATICA_ENDPOINT_NAME' and not args.endpoint_name:
+                    elif key == "ACUMATICA_ENDPOINT_NAME" and not args.endpoint_name:
                         args.endpoint_name = value
-                    elif key == 'ACUMATICA_ENDPOINT_VERSION' and not args.endpoint_version:
+                    elif (
+                        key == "ACUMATICA_ENDPOINT_VERSION"
+                        and not args.endpoint_version
+                    ):
                         args.endpoint_version = value
 
     # Get credentials interactively if not provided
@@ -830,7 +916,7 @@ def main():
         args.password = getpass.getpass("Enter Password: ")
 
     print(f"\nConnecting to {args.url}...")
-    
+
     # Create client instance
     client = AcumaticaClient(
         base_url=args.url,
@@ -839,21 +925,31 @@ def main():
         tenant=args.tenant,
         endpoint_name=args.endpoint_name,
         endpoint_version=args.endpoint_version,
-        cache_methods=False, # Explicitly disable caching for stub generation
+        cache_methods=False,  # Explicitly disable caching for stub generation
     )
-    
-    print("✅ Successfully connected and initialized client")
-    
-    # Generate stubs
-    output_dir = Path(args.output_dir)
-    create_stub_structure(client, output_dir)
-    
+
+    print(" Successfully connected and initialized client")
+
+    # Resolve output directory. Default = package install dir (inline stubs,
+    # auto-discovered by every type checker). Explicit --output-dir =
+    # external/portable, but requires IDE config.
+    if args.output_dir is None:
+        output_dir = Path(easy_acumatica.__file__).parent
+        inline = True
+        print(f"\nWriting inline stubs into {output_dir}")
+    else:
+        output_dir = Path(args.output_dir)
+        inline = False
+        print(f"\nWriting stubs into {output_dir} (configure your IDE's stubPath)")
+
+    create_stub_structure(client, output_dir, inline=inline)
+
     # Clean up
     client.logout()
-    print("\n✅ Logged out successfully")
-    print("\n" + "="*60)
+    print("\n Logged out successfully")
+    print("\n" + "=" * 60)
     print("ENHANCED STUB GENERATION COMPLETE!")
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":

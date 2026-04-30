@@ -1,0 +1,430 @@
+/* Easy Acumatica TUI styles */
+
+Screen {
+    background: $surface;
+}
+
+/* -- Start screen ------------------------------------------------------ */
+
+StartScreen {
+    align: center middle;
+}
+
+#start-container {
+    width: 60;
+    height: auto;
+    padding: 2 4;
+    border: round $primary;
+    background: $panel;
+}
+
+#start-title {
+    width: 100%;
+    content-align: center middle;
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+#start-subtitle {
+    width: 100%;
+    content-align: center middle;
+    color: $text-muted;
+    margin-bottom: 2;
+}
+
+#start-container Button {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* -- Credentials screen ------------------------------------------------ */
+
+CredentialsScreen {
+    align: center middle;
+}
+
+#creds-container {
+    width: 70;
+    height: auto;
+    padding: 2 4;
+    border: round $primary;
+    background: $panel;
+}
+
+#creds-title {
+    width: 100%;
+    content-align: center middle;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#creds-container Label {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#creds-container Input {
+    width: 100%;
+}
+
+#creds-buttons {
+    margin-top: 2;
+    height: 3;
+    align-horizontal: right;
+}
+
+#creds-buttons Button {
+    margin-left: 2;
+}
+
+#creds-error {
+    color: $error;
+    margin-top: 1;
+}
+
+/* -- Loading screen --------------------------------------------------- */
+
+LoadingScreen {
+    align: center middle;
+}
+
+#loading-container {
+    width: 60;
+    height: auto;
+    padding: 2 4;
+    border: round $primary;
+    background: $panel;
+}
+
+#loading-title {
+    width: 100%;
+    content-align: center middle;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#loading-message {
+    width: 100%;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+/* -- Main screen ------------------------------------------------------ */
+
+MainScreen {
+    layout: vertical;
+}
+
+#main-body {
+    height: 1fr;
+}
+
+#sidebar {
+    width: 50;
+    border-right: solid $primary-lighten-2;
+    padding: 0 1;
+}
+
+#sidebar-tabs {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#sidebar-tabs Button {
+    width: 1fr;
+    min-width: 0;
+}
+
+#sidebar-tabs Button.active {
+    background: $primary;
+    color: $text;
+}
+
+#filter-input {
+    margin-bottom: 1;
+}
+
+#list-view {
+    height: 1fr;
+    border: round $primary-lighten-2;
+}
+
+#detail-pane {
+    width: 1fr;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+#detail-content {
+    width: 100%;
+    height: auto;
+}
+
+#conn-status {
+    dock: top;
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+    padding: 0 1;
+}
+
+/* -- Service call screen --------------------------------------------- */
+
+ServiceCallScreen {
+    layout: vertical;
+}
+
+#call-root {
+    padding: 1 2;
+}
+
+#call-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#method-set {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#method-set Button {
+    margin-right: 1;
+}
+
+#method-set Button.active {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+#method-description {
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+#method-params {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.key-row {
+    height: 3;
+    margin-bottom: 0;
+}
+
+.key-row .key-name {
+    width: 30;
+    margin-right: 1;
+}
+
+.key-row .key-value {
+    width: 1fr;
+}
+
+#options-title {
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#options-grid {
+    layout: grid;
+    grid-size: 2 6;
+    grid-columns: 12 1fr;
+    grid-rows: 3;
+    grid-gutter: 0 1;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#call-buttons {
+    margin-top: 1;
+    height: 3;
+    align-horizontal: right;
+}
+
+#call-buttons Button {
+    margin-left: 2;
+}
+
+#call-status {
+    margin-top: 1;
+}
+
+#result-title {
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#result-pane {
+    border: round $primary-lighten-2;
+    padding: 1;
+    background: $boost;
+    height: auto;
+    min-height: 10;
+}
+
+/* -- Code preview pane -------------------------------------------------- */
+
+#code-preview-title {
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#code-preview {
+    border: round $accent;
+    padding: 1;
+    background: $surface;
+    color: $text;
+    height: auto;
+    min-height: 6;
+    margin-bottom: 1;
+}
+
+/* Nested-row layouts (used by put_entity build button + ModelBuilderScreen) */
+
+.nested-row {
+    height: 3;
+    margin-bottom: 0;
+}
+
+.nested-row Button {
+    margin-right: 1;
+}
+
+.nested-row Static {
+    width: auto;
+    content-align: left middle;
+    padding-left: 1;
+}
+
+.list-row {
+    height: 3;
+    margin-bottom: 0;
+}
+
+.list-row Static {
+    width: 1fr;
+    content-align: left middle;
+    padding-left: 1;
+}
+
+.list-row Button {
+    margin-right: 1;
+}
+
+/* -- Model builder ----------------------------------------------------- */
+
+ModelBuilderScreen {
+    align: center middle;
+}
+
+#builder-root {
+    width: 90%;
+    max-width: 160;
+    height: 85%;
+    padding: 1 2;
+    border: round $primary;
+    background: $panel;
+    layout: vertical;
+}
+
+#builder-title {
+    text-style: bold;
+    color: $primary;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#builder-help {
+    color: $text-muted;
+    height: 1;
+    margin-bottom: 1;
+}
+
+/* Side-by-side: form on the left, live code preview on the right. */
+#builder-body {
+    height: 1fr;
+}
+
+/* Scrollable region: takes the remaining vertical space inside the panel
+   so the title and the action buttons stay anchored at the edges. */
+#builder-fields {
+    width: 1fr;
+    height: 100%;
+    border: round $primary-lighten-2;
+    padding: 0 1;
+    margin-right: 1;
+}
+
+#builder-preview-wrap {
+    width: 1fr;
+    height: 100%;
+}
+
+#builder-preview-title {
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#builder-preview {
+    border: round $accent;
+    padding: 1;
+    background: $surface;
+    color: $text;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+#builder-buttons {
+    height: 3;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+#builder-buttons Button {
+    margin-left: 2;
+}
+
+#builder-status {
+    height: auto;
+    min-height: 1;
+    margin-top: 1;
+}
+
+/* -- Error modal ------------------------------------------------------ */
+
+ErrorModal {
+    align: center middle;
+}
+
+#error-container {
+    width: 70;
+    height: auto;
+    padding: 2 4;
+    border: thick $error;
+    background: $panel;
+}
+
+#error-title {
+    width: 100%;
+    content-align: center middle;
+    text-style: bold;
+    color: $error;
+    margin-bottom: 1;
+}
+
+#error-message {
+    width: 100%;
+    margin-bottom: 2;
+}
+
+#error-buttons {
+    align-horizontal: right;
+    height: 3;
+}

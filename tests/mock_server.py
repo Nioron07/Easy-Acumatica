@@ -20,6 +20,7 @@ TEST_ENDPOINT_NAME = "Default"
 # Global state for simulating schema changes
 _schema_version = "v1"
 _xml_version = "v1"
+_swagger_request_count = 0
 
 # --- Authentication and Endpoint Discovery ---
 
@@ -91,12 +92,20 @@ def get_swagger(endpoint_name: str, version: str):
     Serves the mock swagger.json with support for different schema versions
     to test differential caching. This now accepts a variable endpoint_name.
     """
+    global _swagger_request_count
+    _swagger_request_count += 1
     print(f"Swagger requested for endpoint '{endpoint_name}', version: {version}, schema version: {_schema_version}")
-    
+
     if _schema_version == "v2":
         return jsonify(get_modified_swagger_json()), 200
     else:
         return jsonify(get_swagger_json()), 200
+
+
+@app.route('/test/swagger-count', methods=['GET'])
+def get_swagger_count():
+    """Return the number of swagger.json requests since the last reset."""
+    return jsonify({"count": _swagger_request_count}), 200
 
 # --- OData metadata endpoint with version support ---
 
@@ -389,12 +398,13 @@ def add_delay(seconds: int):
     time.sleep(min(seconds, 10))  # Cap at 10 seconds for safety
     return jsonify({"delayed": seconds}), 200
 
-@app.route('/test/cache/reset', methods=['POST'])  
+@app.route('/test/cache/reset', methods=['POST'])
 def reset_cache_test_state():
     """Reset all test state for cache testing."""
-    global _schema_version, _xml_version
+    global _schema_version, _xml_version, _swagger_request_count
     _schema_version = "v1"
     _xml_version = "v1"
+    _swagger_request_count = 0
     return jsonify({"message": "Test state reset"}), 200
 
 # --- Custom Endpoint Entity Paths ---

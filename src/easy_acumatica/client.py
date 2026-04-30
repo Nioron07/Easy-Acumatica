@@ -53,12 +53,14 @@ Usage example
 from __future__ import annotations
 
 import atexit
+import gzip
 import hashlib
 import inspect
 import json
 import logging
 import os
 import pickle
+import threading
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -68,7 +70,6 @@ import xml.etree.ElementTree as ET
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from . import models
 from .config import AcumaticaConfig
@@ -77,7 +78,7 @@ from .helpers import _raise_with_detail
 from .model_factory import ModelFactory
 from .service_factory import ServiceFactory, to_snake_case
 from .core import BatchMethodWrapper
-from .utils import RateLimiter, retry_on_error, validate_entity_id
+from .utils import RateLimiter
 from .core import BaseDataClassModel, BaseService
 from .scheduler import TaskScheduler
 
@@ -88,6 +89,17 @@ logger = logging.getLogger(__name__)
 
 # Track all client instances for cleanup
 _active_clients: WeakSet[AcumaticaClient] = WeakSet()
+
+
+# Built-in BaseService methods that should be excluded when introspecting
+# inquiry methods on the dynamically-built ``Inquiries`` service. Any other
+# public, callable attribute on that service is treated as a generated
+# inquiry endpoint.
+_BASE_SERVICE_METHODS = frozenset({
+    '_get', '_put', '_post_action', '_delete', '_get_files',
+    '_get_schema', '_get_inquiry', '_request', '_get_url',
+    '_get_by_keys',
+})
 
 
 def load_env_file(env_file_path: Path) -> Dict[str, str]:
@@ -193,8 +205,6 @@ class AcumaticaClient:
     
     _atexit_registered: bool = False
     _default_timeout: int = 60
-    _max_retries: int = 3
-    _backoff_factor: float = 0.3
     _pool_connections: int = 10
     _pool_maxsize: int = 10
 
@@ -216,6 +226,7 @@ class AcumaticaClient:
         timeout: Optional[int] = None,
         cache_methods: bool = False,
         cache_ttl_hours: int = 24,
+        schema_cache_ttl_hours: int = 1,
         cache_dir: Optional[Path] = None,
         force_rebuild: bool = False,
         env_file: Optional[Union[str, Path]] = None,
@@ -245,6 +256,10 @@ class AcumaticaClient:
             timeout: Request timeout in seconds (default: 60).
             cache_methods: Enable caching of generated models and services for faster startup.
             cache_ttl_hours: Time-to-live for cached data in hours (default: 24).
+            schema_cache_ttl_hours: TTL for the on-disk raw OpenAPI schema cache (default: 1).
+                Shorter than cache_ttl_hours since schema freshness matters more when admins
+                deploy customization packages. Call :meth:`refresh_schema` for explicit invalidation.
+                Must be <= cache_ttl_hours.
             cache_dir: Directory for storing cache files. Defaults to ~/.easy_acumatica_cache
             force_rebuild: Force rebuilding of models and services, ignoring cache.
             env_file: Path to .env file to load. If None and auto_load_env=True, searches automatically.
@@ -330,6 +345,7 @@ class AcumaticaClient:
             timeout = config.timeout
             cache_methods = getattr(config, 'cache_methods', cache_methods)
             cache_ttl_hours = getattr(config, 'cache_ttl_hours', cache_ttl_hours)
+            schema_cache_ttl_hours = getattr(config, 'schema_cache_ttl_hours', schema_cache_ttl_hours)
             cache_dir = getattr(config, 'cache_dir', cache_dir)
             force_rebuild = getattr(config, 'force_rebuild', force_rebuild)
         else:
@@ -347,6 +363,11 @@ class AcumaticaClient:
             if os.getenv('ACUMATICA_CACHE_TTL_HOURS'):
                 try:
                     cache_ttl_hours = int(os.getenv('ACUMATICA_CACHE_TTL_HOURS'))
+                except ValueError:
+                    pass
+            if os.getenv('ACUMATICA_SCHEMA_CACHE_TTL_HOURS'):
+                try:
+                    schema_cache_ttl_hours = int(os.getenv('ACUMATICA_SCHEMA_CACHE_TTL_HOURS'))
                 except ValueError:
                     pass
             
@@ -367,6 +388,7 @@ class AcumaticaClient:
                 rate_limit_calls_per_second=rate_limit_calls_per_second,
                 cache_methods=cache_methods,
                 cache_ttl_hours=cache_ttl_hours,
+                schema_cache_ttl_hours=schema_cache_ttl_hours,
                 cache_dir=cache_dir,
                 force_rebuild=force_rebuild,
             )
@@ -414,9 +436,13 @@ class AcumaticaClient:
         # Cache configuration
         self.cache_enabled: bool = cache_methods
         self.cache_ttl_hours: int = cache_ttl_hours
+        self.schema_cache_ttl_hours: int = schema_cache_ttl_hours
         self.force_rebuild: bool = force_rebuild
         self.cache_dir: Path = cache_dir or Path.home() / ".easy_acumatica_cache"
         self._cache_dir_overridden: bool = cache_dir is not None
+        # Serializes concurrent disk-cache reads and writes within one process.
+        # Cross-process safety is provided by atomic temp-file + os.replace.
+        self._cache_lock: threading.RLock = threading.RLock()
         
         if self.cache_enabled:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -500,24 +526,22 @@ class AcumaticaClient:
         }
 
     def _create_session(self) -> requests.Session:
-        """Creates a configured requests session with connection pooling and retry logic."""
+        """
+        Creates a configured requests session with connection pooling.
+
+        No automatic HTTP retry. Server errors (5xx, 429) are surfaced
+        immediately via ``_raise_with_detail`` so the caller sees the actual
+        response body instead of a generic "too many 500 error responses"
+        wrapper. If you need retries, add them at the call site.
+        """
         session = requests.Session()
-        
-        # Configure retry strategy
-        retry_strategy = Retry(
-            total=self._max_retries,
-            backoff_factor=self._backoff_factor,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]
-        )
-        
-        # Configure connection pooling
+
         adapter = HTTPAdapter(
             pool_connections=self._pool_connections,
             pool_maxsize=self._pool_maxsize,
-            max_retries=retry_strategy
+            max_retries=0,
         )
-        
+
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         
@@ -637,47 +661,53 @@ class AcumaticaClient:
                 }
             }
             
-            # Save to temporary file first, then move to prevent corruption
-            temp_file = cache_file.with_suffix('.tmp')
-            with open(temp_file, 'wb') as f:
-                pickle.dump(cache_data, f)
-            
-            temp_file.replace(cache_file)
-            # Cache saved successfully
-            
-        except Exception as e:
+            # Save to a thread/PID-unique temp file first to avoid concurrent
+            # writers clobbering a shared temp path, then os.replace atomically.
+            temp_file = cache_file.with_suffix(
+                f'.tmp.{os.getpid()}.{threading.get_ident()}'
+            )
+            with self._cache_lock:
+                with open(temp_file, 'wb') as f:
+                    pickle.dump(cache_data, f)
+                os.replace(temp_file, cache_file)
+
+        except Exception:
             pass  # Failed to save differential cache
 
-    def _load_differential_cache(self, cache_file: Path) -> Dict[str, Any]:
-        """Load and validate differential cache."""
-        try:
-            with open(cache_file, 'rb') as f:
-                cached_data = pickle.load(f)
-            
-            # Validate cache format version
-            cache_version = cached_data.get('version', '1.0')
-            if cache_version not in ['1.0', '1.1']:
-                return None  # Cache format version not supported
-            
-            # Check TTL
-            cache_age = time.time() - cached_data.get('timestamp', 0)
+    def _load_differential_cache(self, cache_file: Path) -> Optional[Dict[str, Any]]:
+        """
+        Load and validate the differential cache pickle.
+
+        Returns None on miss, expired TTL, version mismatch, endpoint mismatch,
+        or any read/deserialize error. TTL is checked against the file's mtime
+        rather than the embedded ``timestamp`` so a backwards system-clock jump
+        can never make stale caches look fresh.
+        """
+        with self._cache_lock:
+            try:
+                cache_age = time.time() - cache_file.stat().st_mtime
+            except OSError:
+                return None
             if cache_age > (self.cache_ttl_hours * 3600):
-                return None  # Cache expired due to TTL
-            
-            # Validate endpoint compatibility
+                return None
+
+            try:
+                with open(cache_file, 'rb') as f:
+                    cached_data = pickle.load(f)
+            except (OSError, pickle.UnpicklingError, EOFError, AttributeError):
+                return None
+
+            if cached_data.get('version') not in ('1.0', '1.1'):
+                return None
+
             endpoint_info = cached_data.get('endpoint_info', {})
             if (endpoint_info.get('name') != self.endpoint_name or
                 endpoint_info.get('version') != self.endpoint_version or
                 endpoint_info.get('base_url') != self.base_url or
                 endpoint_info.get('tenant') != self.tenant):
-                return None  # Cache endpoint info mismatch
-                
+                return None
+
             return cached_data
-        except requests.exceptions.ConnectionError:
-            # Network error during cache validation, using stale cache
-            return cached_data
-        except Exception as e:
-            return None  # Failed to load cache
 
     def _perform_differential_update(self, cached_data: Dict[str, Any], current_schema: Dict[str, Any], inquiries_xml_path: str = None) -> None:
         """Perform differential update of models, services, and inquiries."""
@@ -938,6 +968,11 @@ class AcumaticaClient:
                 inquiries_service = service_class(self)
                 self._service_instances["Inquiries"] = inquiries_service
                 self._available_services.add("Inquiries")
+                # Mirror the convention used by _build_dynamic_services so
+                # callers can do client.inquiries.<method>(...) directly.
+                # Without this attr the live code preview in the TUI emits
+                # snippets that don't run when copy-pasted.
+                setattr(self, "inquiries", inquiries_service)
             else:
                 inquiries_service = self._service_instances["Inquiries"]
             
@@ -978,10 +1013,7 @@ class AcumaticaClient:
         methods_to_remove = []
         for attr_name in dir(service):
             if not attr_name.startswith('_') and callable(getattr(service, attr_name)):
-                # Skip built-in BaseService methods
-                if attr_name not in ['_get', '_put', '_post_action', '_delete', '_get_files', 
-                                   '_get_schema', '_get_inquiry', '_request', '_get_url',
-                                   '_get_by_keys']:
+                if attr_name not in _BASE_SERVICE_METHODS:
                     methods_to_remove.append(attr_name)
         
         # Remove the methods
@@ -1155,14 +1187,15 @@ class AcumaticaClient:
         return service_hashes
 
     def _calculate_schema_hash(self, schema: Dict[str, Any]) -> str:
-        """Calculate overall schema hash for quick comparison."""
-        hash_content = {
-            'info': schema.get('info', {}),
-            'servers': schema.get('servers', []),
-            'paths_count': len(schema.get('paths', {})),
-            'schemas_count': len(schema.get('components', {}).get('schemas', {}))
-        }
-        hash_input = json.dumps(hash_content, sort_keys=True)
+        """
+        Calculate an overall schema hash for quick comparison.
+
+        Hashes the full schema JSON (sorted keys) so any content change
+        produces a different digest. The earlier counts-only implementation
+        collided on schemas that had the same number of paths/schemas but
+        different content, which silently hid server-side changes.
+        """
+        hash_input = json.dumps(schema, sort_keys=True, default=str)
         return hashlib.md5(hash_input.encode()).hexdigest()
 
     def _normalize_model_definition(self, definition: Dict[str, Any]) -> Dict[str, Any]:
@@ -1378,64 +1411,21 @@ class AcumaticaClient:
         key_string = '|'.join(key_parts)
         return hashlib.md5(key_string.encode()).hexdigest()
 
-    def _is_cache_valid(self, schema_hash_file: Path) -> bool:
-        """Check if cached data is still valid based on schema hash and TTL."""
-        try:
-            # Check TTL
-            cache_age = time.time() - schema_hash_file.stat().st_mtime
-            if cache_age > (self.cache_ttl_hours * 3600):
-                return False  # Cache expired due to TTL
-            
-            # Check schema hash
-            with open(schema_hash_file, 'r') as f:
-                cached_hash = f.read().strip()
-            
-            current_schema = self._fetch_schema(self.endpoint_name, self.endpoint_version)
-            current_hash = hashlib.md5(json.dumps(current_schema, sort_keys=True).encode()).hexdigest()
-            
-            is_valid = cached_hash == current_hash
-            if not is_valid:
-                pass  # Cache invalid due to schema changes
-            return is_valid
-            
-        except Exception as e:
-            return False  # Cache validation failed
-
-    def _save_to_cache(self, cache_file: Path, schema_hash_file: Path, schema: Dict[str, Any]) -> None:
-        """Save current models to cache."""
-        try:
-            # Only cache the models as services are easier to rebuild
-            cache_data = {
-                'models': self._model_classes.copy(),
-                'timestamp': time.time()
-            }
-            
-            # Save cache file
-            with open(cache_file, 'wb') as f:
-                pickle.dump(cache_data, f)
-            
-            # Save schema hash
-            schema_hash = hashlib.md5(json.dumps(schema, sort_keys=True).encode()).hexdigest()
-            with open(schema_hash_file, 'w') as f:
-                f.write(schema_hash)
-            
-            pass  # Cache saved successfully
-            
-        except Exception as e:
-            pass  # Failed to save cache
-
     @lru_cache(maxsize=32)
     def _fetch_schema(self, endpoint_name: str = "Default", version: str = None) -> Dict[str, Any]:
         """
         Fetches and caches the OpenAPI schema for a given endpoint.
-        
+
+        Lookup order: in-memory dict -> on-disk gzip JSON -> network fetch.
+        The on-disk layer saves ~3 MB of bandwidth per startup when fresh.
+
         Args:
             endpoint_name: Name of the API endpoint
             version: Version of the endpoint
-            
+
         Returns:
             OpenAPI schema dictionary
-            
+
         Raises:
             AcumaticaError: If schema fetch fails
         """
@@ -1443,21 +1433,85 @@ class AcumaticaClient:
             version = self.endpoints[endpoint_name]['version']
         cache_key = f"{endpoint_name}:{version}"
         if cache_key in self._schema_cache:
-            # Using cached schema
             return self._schema_cache[cache_key]
-        
+
+        schema = self._load_schema_from_disk()
+        if schema is not None:
+            self._schema_cache[cache_key] = schema
+            return schema
+
         schema_url = f"{self.base_url}/entity/{endpoint_name}/{version}/swagger.json"
         if self.tenant:
             schema_url += f"?company={self.tenant}"
-        
-        # Fetch schema from API
-        
+
         try:
             schema = self._request("get", schema_url).json()
             self._schema_cache[cache_key] = schema
+            self._save_schema_to_disk(schema)
             return schema
         except Exception as e:
             raise AcumaticaError(f"Failed to fetch schema for {endpoint_name} v{version}: {e}")
+
+    def _schema_cache_path(self) -> Path:
+        """Path to the on-disk gzipped schema JSON for this client's connection."""
+        return self.cache_dir / f"{self._get_cache_key()}.schema.json.gz"
+
+    def _load_schema_from_disk(self) -> Optional[Dict[str, Any]]:
+        """
+        Load the raw OpenAPI schema from the on-disk cache if it's present and fresh.
+
+        Returns None on cache miss, expired TTL, corrupt file, or when disk caching
+        is disabled (cache_enabled=False or force_rebuild=True).
+        """
+        if not self.cache_enabled or self.force_rebuild:
+            return None
+
+        schema_file = self._schema_cache_path()
+        if not schema_file.exists():
+            return None
+
+        with self._cache_lock:
+            try:
+                age = time.time() - schema_file.stat().st_mtime
+            except OSError:
+                return None
+            if age >= self.schema_cache_ttl_hours * 3600:
+                return None
+
+            try:
+                with gzip.open(schema_file, 'rt', encoding='utf-8') as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError, EOFError, gzip.BadGzipFile):
+                # Corrupt or unreadable; caller will refetch from network.
+                return None
+
+    def _save_schema_to_disk(self, schema: Dict[str, Any]) -> None:
+        """
+        Persist the raw OpenAPI schema to disk as gzipped JSON.
+
+        Uses atomic write (temp file + os.replace) mirroring the pickle path.
+        Silently skips on read-only filesystems so Lambda/container environments
+        degrade to "fetch every time" rather than raising.
+        """
+        if not self.cache_enabled:
+            return
+
+        schema_file = self._schema_cache_path()
+        temp_file = schema_file.with_suffix(
+            f'{schema_file.suffix}.tmp.{os.getpid()}.{threading.get_ident()}'
+        )
+        with self._cache_lock:
+            try:
+                schema_file.parent.mkdir(parents=True, exist_ok=True)
+                with gzip.open(temp_file, 'wt', encoding='utf-8') as f:
+                    json.dump(schema, f)
+                os.replace(temp_file, schema_file)
+            except OSError:
+                try:
+                    if temp_file.exists():
+                        temp_file.unlink()
+                except OSError:
+                    pass
 
     def _build_dynamic_models(self, schema: Dict[str, Any]) -> None:
         """Populates the 'models' module with dynamically generated dataclasses."""
@@ -1660,6 +1714,48 @@ class AcumaticaClient:
             'client_attribute': client_attribute
         }
 
+    def list_inquiries(self) -> List[str]:
+        """Return sorted method names of every Generic Inquiry attached to
+        the ``Inquiries`` service.
+
+        Returns an empty list when no Generic Inquiry metadata has been
+        loaded for this client (the ``Inquiries`` service is only built
+        when GI XML is fetched successfully).
+        """
+        service = self._service_instances.get("Inquiries")
+        if service is None:
+            return []
+        return sorted(
+            attr for attr in dir(service)
+            if not attr.startswith('_')
+            and attr not in _BASE_SERVICE_METHODS
+            and callable(getattr(service, attr, None))
+        )
+
+    def get_inquiry_info(self, method_name: str) -> Dict[str, Any]:
+        """Return introspection details for a single Generic Inquiry method.
+
+        Raises:
+            ValueError: If the inquiry method does not exist on the
+                ``Inquiries`` service (or no ``Inquiries`` service exists).
+        """
+        service = self._service_instances.get("Inquiries")
+        if service is None:
+            raise ValueError(
+                "No Inquiries service is registered on this client."
+            )
+        method = getattr(service, method_name, None)
+        if method is None or not callable(method) or method_name in _BASE_SERVICE_METHODS:
+            available = ', '.join(self.list_inquiries())
+            raise ValueError(
+                f"Inquiry '{method_name}' not found. Available inquiries: {available}"
+            )
+        return {
+            'name': method_name,
+            'method_name': getattr(method, '__name__', method_name),
+            'doc': method.__doc__,
+        }
+
     def search_models(self, pattern: str) -> List[str]:
         """
         Search for models by name pattern.
@@ -1740,7 +1836,7 @@ class AcumaticaClient:
                     # Correctly access the private attributes
                     'pool_connections': adapter._pool_connections if hasattr(adapter, '_pool_connections') else None,
                     'pool_maxsize': adapter._pool_maxsize if hasattr(adapter, '_pool_maxsize') else None,
-                    'max_retries': adapter.max_retries.total if hasattr(adapter.max_retries, 'total') else 0
+                    'max_retries': 0  # HTTP retries disabled - no auto-retry
                 }
 
         return {
@@ -1945,10 +2041,6 @@ class AcumaticaClient:
         if not hasattr(self, '_request_history'):
             self._request_history = []
 
-    def disable_request_history(self) -> None:
-        """Disable request/response history tracking."""
-        self._request_history_enabled = False
-
     def get_request_history(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Get request history (if enabled).
@@ -2090,6 +2182,41 @@ class AcumaticaClient:
         if hasattr(self, '_request_history'):
             self._request_history.clear()
 
+    def refresh_schema(self) -> None:
+        """
+        Invalidate the on-disk and in-memory schema caches so the next access
+        refetches from the Acumatica server.
+
+        Call this after an administrator deploys a customization package or
+        otherwise changes the OpenAPI schema - without it, a fresh-looking
+        disk cache can mask new or removed endpoints for up to
+        ``schema_cache_ttl_hours``.
+
+        The differential pickle cache is left in place on purpose: its per-model
+        hashes are compared against the refetched schema and used to skip
+        rebuilding components that didn't actually change. If you want a full
+        rebuild, use ``clear_cache()`` or init with ``force_rebuild=True``.
+
+        Example:
+            >>> # Admin deployed a new customization package
+            >>> client.refresh_schema()
+            >>> # Next service call / re-init will hit the network
+        """
+        with self._cache_lock:
+            self._schema_cache.clear()
+            if hasattr(self._fetch_schema, 'cache_clear'):
+                self._fetch_schema.cache_clear()
+
+            if not self.cache_enabled:
+                return
+
+            try:
+                self._schema_cache_path().unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
     def clear_cache(self) -> None:
         """
         Clear all cached data (both memory and disk).
@@ -2098,23 +2225,24 @@ class AcumaticaClient:
             >>> client.clear_cache()
             >>> print("Cache cleared")
         """
-        # Clear memory caches
-        self._schema_cache.clear()
-        if hasattr(self._fetch_schema, 'cache_clear'):
-            self._fetch_schema.cache_clear()
-        
-        # Clear disk cache
-        if self.cache_enabled and self.cache_dir.exists():
-            try:
-                import shutil
-                shutil.rmtree(self.cache_dir)
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                pass  # Failed to clear disk cache
-        
-        # Reset counters
-        self._cache_hits = 0
-        self._cache_misses = 0
+        with self._cache_lock:
+            # Clear memory caches
+            self._schema_cache.clear()
+            if hasattr(self._fetch_schema, 'cache_clear'):
+                self._fetch_schema.cache_clear()
+
+            # Clear disk cache
+            if self.cache_enabled and self.cache_dir.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(self.cache_dir)
+                    self.cache_dir.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass  # Failed to clear disk cache
+
+            # Reset counters
+            self._cache_hits = 0
+            self._cache_misses = 0
 
     def help(self, topic: Optional[str] = None) -> None:
         """
@@ -2375,7 +2503,6 @@ Monitoring:
             print(f"Unknown help topic: {topic}")
             print("Available topics: models, services, cache, performance, batch")  # Add 'batch' here
 
-    @retry_on_error(max_attempts=3, delay=1.0, backoff=2.0)
     def login(self) -> int:
         """
         Authenticates and obtains a cookie-based session.

@@ -224,74 +224,47 @@ class BatchCall:
         """
         start_time = time.time()
         temp_session = None
-        max_retries = 3
-        retry_delay = 0.5
-        
-        for attempt in range(max_retries):
-            try:
-                # Get the original client from the call
-                original_client = self._get_original_client_from_call(call)
-                if not original_client:
-                    # If we can't get the client, just execute the call directly
-                    # This handles lambda functions and other non-service calls
-                    result = call.execute()
-                    execution_time = time.time() - start_time
-                    return BatchCallResult(
-                        success=True,
-                        result=result,
-                        execution_time=execution_time,
-                        call_index=index
-                    )
-                
-                logger.debug(f"Creating separate session for call {index} (attempt {attempt + 1})")
-                
-                # Create a completely separate HTTP session 
-                if temp_session:
-                    temp_session.close()  # Close previous attempt if it exists
-                temp_session = self._create_separate_http_session(original_client)
-                
-                # Add a small delay between concurrent logins to avoid server overload
-                if attempt == 0 and index > 0:
-                    time.sleep(index * 0.1)  # Stagger login attempts
-                
-                # Authenticate the temporary session directly
-                self._authenticate_session(temp_session, original_client, index)
-                
-                # Execute the call using the authenticated temp session
-                result = self._execute_call_with_session(call, temp_session, original_client)
-                
-                # Logout the temporary session 
-                self._logout_session(temp_session, original_client)
-                
+
+        try:
+            # Get the original client from the call
+            original_client = self._get_original_client_from_call(call)
+            if not original_client:
+                # Lambdas / non-service callables - execute directly.
+                result = call.execute()
                 execution_time = time.time() - start_time
-                
-                logger.debug(f"Call {index} completed successfully in {execution_time:.3f}s with separate session")
                 return BatchCallResult(
                     success=True,
                     result=result,
                     execution_time=execution_time,
-                    call_index=index
+                    call_index=index,
                 )
-                
-            except Exception as e:
-                execution_time = time.time() - start_time
-                
-                # Check if this is a retryable error
-                is_retryable = (
-                    "401" in str(e) or 
-                    "authentication" in str(e).lower() or
-                    "login" in str(e).lower() or
-                    "unauthorized" in str(e).lower()
-                )
-                
-                if is_retryable and attempt < max_retries - 1:
-                    logger.warning(f"Call {index} attempt {attempt + 1} failed with retryable error: {e}. Retrying in {retry_delay}s...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                    continue
-                
-                logger.debug(f"Call {index} failed after {execution_time:.3f}s with separate session (attempt {attempt + 1}): {e}")
-                raise e
+
+            logger.debug(f"Creating separate session for call {index}")
+
+            # Stagger concurrent logins slightly to avoid server overload.
+            if index > 0:
+                time.sleep(index * 0.1)
+
+            temp_session = self._create_separate_http_session(original_client)
+            self._authenticate_session(temp_session, original_client, index)
+            result = self._execute_call_with_session(call, temp_session, original_client)
+            self._logout_session(temp_session, original_client)
+
+            execution_time = time.time() - start_time
+            logger.debug(f"Call {index} completed successfully in {execution_time:.3f}s")
+            return BatchCallResult(
+                success=True,
+                result=result,
+                execution_time=execution_time,
+                call_index=index,
+            )
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.debug(
+                f"Call {index} failed after {execution_time:.3f}s "
+                f"with separate session: {e}"
+            )
+            raise
 
         
         # Final cleanup after all attempts
@@ -397,27 +370,18 @@ class BatchCall:
         """
         import requests
         from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-        
-        # Create new session
+
         new_session = requests.Session()
-        
-        # Copy configuration from original client's session creation logic with more aggressive settings
-        retry_strategy = Retry(
-            total=original_client._max_retries,
-            backoff_factor=original_client._backoff_factor,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"],
-            raise_on_status=False  # Don't raise exceptions, let our code handle them
-        )
-        
+
+        # No automatic HTTP retry - surface the server's actual error to the
+        # caller instead of wrapping it in a "too many 5xx" RetryError.
         adapter = HTTPAdapter(
             pool_connections=original_client._pool_connections,
             pool_maxsize=original_client._pool_maxsize,
-            max_retries=retry_strategy,
-            pool_block=False  # Don't block if pool is full
+            max_retries=0,
+            pool_block=False,
         )
-        
+
         new_session.mount("http://", adapter)
         new_session.mount("https://", adapter)
         

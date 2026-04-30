@@ -308,7 +308,36 @@ def test_introspection_based_stub_generation(live_server_url, monkeypatch):
     assert "models: Any" in client_content
     assert "from . import models" in client_content or "from .services import" in client_content
 
-    print("✅ Introspection-based stub generation test passed!")
+    print(" Introspection-based stub generation test passed!")
+
+
+def test_nested_model_types_strip_module_prefix():
+    """
+    Regression: when one model references another (e.g. SalesOrder has
+    a ShipToAddress field of type Address), the stub for that field must
+    use the bare class name (`Address`) rather than the FQN
+    (`easy_acumatica.models.Address`). Inside `models.pyi` - which IS
+    the `easy_acumatica.models` module - the FQN would resolve to
+    `easy_acumatica.models.easy_acumatica.models.Address` and break
+    type checking.
+    """
+    from easy_acumatica.generate_stubs import get_type_annotation_string
+
+    # Simulate the runtime annotation: a Python 3.10+ union where one arm
+    # is a model class.
+    class FakeAddress: pass
+    FakeAddress.__module__ = "easy_acumatica.models"
+    FakeAddress.__qualname__ = "Address"
+    FakeAddress.__name__ = "Address"
+
+    # str(Address | None) on 3.10+ produces "easy_acumatica.models.Address | None"
+    annotation = type(None) | FakeAddress  # noqa: pep604 syntax
+    rendered = get_type_annotation_string(annotation)
+
+    assert "easy_acumatica.models." not in rendered, (
+        f"FQN prefix should be stripped: got {rendered!r}"
+    )
+    assert "Address" in rendered, f"class name should remain: got {rendered!r}"
 
 
 def test_return_type_extraction():
@@ -384,7 +413,7 @@ def test_return_type_extraction():
     return_type = get_return_type_from_schema(operation_details, {}, default_type="None")
     assert return_type == "None", f"Expected None, got {return_type}"
 
-    print("✅ Return type extraction test passed!")
+    print(" Return type extraction test passed!")
 
 
 def test_custom_endpoint_naming():
@@ -428,7 +457,7 @@ def test_custom_endpoint_naming():
     acronym_case = factory._get_custom_endpoint_name('ABC All Items (GI908032)')
     assert acronym_case == 'abc_all_items', f"Expected 'abc_all_items', got '{acronym_case}'"
 
-    print("✅ Custom endpoint naming test passed!")
+    print(" Custom endpoint naming test passed!")
 
 
 def test_custom_endpoint_detection():
@@ -469,7 +498,198 @@ def test_custom_endpoint_detection():
     is_custom_regular = factory._is_custom_endpoint('Test', regular_entity_operations)
     assert is_custom_regular == False, "Test should not be detected as custom endpoint"
 
-    print("✅ Custom endpoint detection test passed!")
+    print(" Custom endpoint detection test passed!")
+
+
+def test_default_output_is_install_dir(live_server_url, monkeypatch):
+    """When --output-dir is not passed, stubs land in the easy_acumatica
+    install directory so PEP 561 inline-stub discovery works without any
+    IDE config (the package's py.typed is already there)."""
+    import easy_acumatica
+
+    dummy_args = [
+        "generate_stubs.py",
+        "--url", live_server_url,
+        "--username", "test",
+        "--password", "test",
+        "--tenant", "test",
+        # Note: NO --output-dir
+    ]
+    monkeypatch.setattr(sys, "argv", dummy_args)
+
+    written_files = {}
+
+    def mock_mkdir(self, **kwargs):
+        return None
+
+    def mock_write_text(self, content, encoding='utf-8'):
+        written_files[str(self)] = content
+        return None
+
+    expected_dir = str(Path(easy_acumatica.__file__).parent)
+
+    with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', mock_mkdir):
+        generate_stubs.main()
+
+    # All generated .pyi files should be inside the package install dir.
+    pyi_files = [p for p in written_files if p.endswith('.pyi')]
+    assert pyi_files, "no .pyi files were generated"
+    for path in pyi_files:
+        assert path.startswith(expected_dir), (
+            f"{path} should be inside the package install dir ({expected_dir})"
+        )
+
+
+def test_default_output_skips_py_typed(live_server_url, monkeypatch):
+    """py.typed is already shipped with the package - the inline-mode
+    generator must not re-write it (no point + would shadow the marker)."""
+    dummy_args = [
+        "generate_stubs.py",
+        "--url", live_server_url,
+        "--username", "test",
+        "--password", "test",
+        "--tenant", "test",
+    ]
+    monkeypatch.setattr(sys, "argv", dummy_args)
+
+    written_files = {}
+
+    def mock_mkdir(self, **kwargs):
+        return None
+
+    def mock_write_text(self, content, encoding='utf-8'):
+        written_files[str(self)] = content
+        return None
+
+    with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', mock_mkdir):
+        generate_stubs.main()
+
+    assert not any(p.endswith('py.typed') for p in written_files), (
+        "inline-mode must not write py.typed - it's already shipped"
+    )
+
+
+def test_explicit_output_dir_writes_py_typed(live_server_url, monkeypatch, tmp_path):
+    """--output-dir writes a self-contained stub set including py.typed."""
+    dummy_args = [
+        "generate_stubs.py",
+        "--url", live_server_url,
+        "--username", "test",
+        "--password", "test",
+        "--tenant", "test",
+        "--output-dir", str(tmp_path),
+    ]
+    monkeypatch.setattr(sys, "argv", dummy_args)
+
+    written_files = {}
+
+    def mock_write_text(self, content, encoding='utf-8'):
+        written_files[str(self)] = content
+        return None
+
+    with patch.object(Path, 'write_text', mock_write_text):
+        generate_stubs.main()
+
+    assert any(p.endswith('py.typed') for p in written_files), (
+        "explicit --output-dir mode must write py.typed for portability"
+    )
+
+
+def test_models_pyi_has_getattr_fallback(live_server_url, monkeypatch):
+    """models.pyi ends with a __getattr__ catch-all so dynamic model
+    access doesn't generate spurious 'unknown attribute' warnings when
+    stubs are slightly out of date."""
+    dummy_args = [
+        "generate_stubs.py",
+        "--url", live_server_url,
+        "--username", "test",
+        "--password", "test",
+        "--tenant", "test",
+    ]
+    monkeypatch.setattr(sys, "argv", dummy_args)
+
+    written_files = {}
+
+    def mock_write_text(self, content, encoding='utf-8'):
+        written_files[str(self)] = content
+        return None
+
+    with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', lambda self, **kw: None):
+        generate_stubs.main()
+
+    models_content = next(c for p, c in written_files.items() if p.endswith('models.pyi'))
+    assert 'def __getattr__(name: str)' in models_content
+    assert 'BaseDataClassModel' in models_content
+
+
+def test_client_pyi_includes_introspected_methods(live_server_url, monkeypatch):
+    """client.pyi is now built from inspect.signature(AcumaticaClient.X)
+    rather than a hand-maintained list. Methods that exist on the class
+    must appear in the stub."""
+    dummy_args = [
+        "generate_stubs.py",
+        "--url", live_server_url,
+        "--username", "test",
+        "--password", "test",
+        "--tenant", "test",
+    ]
+    monkeypatch.setattr(sys, "argv", dummy_args)
+
+    written_files = {}
+
+    def mock_write_text(self, content, encoding='utf-8'):
+        written_files[str(self)] = content
+        return None
+
+    with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', lambda self, **kw: None):
+        generate_stubs.main()
+
+    client_content = next(
+        c for p, c in written_files.items()
+        if p.endswith('client.pyi') and '__init__' not in p
+    )
+
+    # Methods that previously dropped out of the hand-maintained list.
+    for method in ['refresh_schema', 'enable_request_history', 'test_connection',
+                   'list_models', 'list_services', 'clear_cache', 'logout']:
+        assert f'def {method}(' in client_content, (
+            f"client.pyi missing introspected method '{method}'"
+        )
+
+
+def test_service_attribute_uses_entity_name_for_class(live_server_url, monkeypatch):
+    """The service-class name in client.pyi must derive from the canonical
+    entity_name (no pluralization de-mapper). For an entity 'Test', the
+    attribute is 'test' and the class is 'TestService'."""
+    dummy_args = [
+        "generate_stubs.py",
+        "--url", live_server_url,
+        "--username", "test",
+        "--password", "test",
+        "--tenant", "test",
+    ]
+    monkeypatch.setattr(sys, "argv", dummy_args)
+
+    written_files = {}
+
+    def mock_write_text(self, content, encoding='utf-8'):
+        written_files[str(self)] = content
+        return None
+
+    with patch.object(Path, 'write_text', mock_write_text), patch.object(Path, 'mkdir', lambda self, **kw: None):
+        generate_stubs.main()
+
+    client_content = next(
+        c for p, c in written_files.items()
+        if p.endswith('client.pyi') and '__init__' not in p
+    )
+    services_content = next(
+        c for p, c in written_files.items() if p.endswith('services.pyi')
+    )
+
+    # The mock's primary entity is 'Test' -> attribute 'test' -> class 'TestService'.
+    assert 'test: TestService' in client_content
+    assert 'class TestService(BaseService):' in services_content
 
 
 def test_custom_endpoint_integration(live_server_url):
@@ -512,4 +732,4 @@ def test_custom_endpoint_integration(live_server_url):
     assert 'rowNumber' in item, "Item should have rowNumber field"
     assert 'ItemID' in item, "Item should have ItemID field"
 
-    print("✅ Custom endpoint integration test passed!")
+    print(" Custom endpoint integration test passed!")

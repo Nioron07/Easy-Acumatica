@@ -39,7 +39,7 @@ class TestClientBasicFeatures:
         result = client.test.get_by_id("123")
         assert result["id"] == "123"
         client.close()
-        print(f"\n✅ Client successfully auto-detected latest version: {LATEST_DEFAULT_VERSION}")
+        print(f"\n Client successfully auto-detected latest version: {LATEST_DEFAULT_VERSION}")
 
 
     def test_uses_specified_endpoint_version(self, live_server_url):
@@ -66,7 +66,7 @@ class TestClientBasicFeatures:
         assert result["Name"]["value"] == "Old Specific Test Item"
 
         client.close()
-        print(f"\n✅ Client correctly used specified version: {OLD_DEFAULT_VERSION}")
+        print(f"\n Client correctly used specified version: {OLD_DEFAULT_VERSION}")
 
     def test_service_methods_generated(self, live_server_url):
         """Test that service methods are properly generated from schema."""
@@ -1070,7 +1070,7 @@ class TestIntrospectionMethods:
         assert isinstance(schema['RelatedItems']['fields']['RelatedContact']['fields'], dict)
         assert 'Email' in schema['RelatedItems']['fields']['RelatedContact']['fields']
 
-        print(f"\n✅ Model schema correctly expanded with {len(schema)} fields")
+        print(f"\n Model schema correctly expanded with {len(schema)} fields")
         print(f"   - Owner nested model type: {schema['Owner']['type']}")
         print(f"   - Owner has {len(schema['Owner']['fields'])} fields")
         print(f"   - Owner.Address type: {schema['Owner']['fields']['Address']['type']}")
@@ -1095,5 +1095,5 @@ class TestIntrospectionMethods:
         with pytest.raises(AttributeError):
             client.models.NonExistent.get_schema()
 
-        print("\n✅ Accessing non-existent model correctly raised AttributeError")
+        print("\n Accessing non-existent model correctly raised AttributeError")
         client.close()
