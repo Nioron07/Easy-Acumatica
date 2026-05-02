@@ -101,7 +101,18 @@ class AcumaticaError(Exception):
         """
         super().__init__(message)
         self.message = message
-        self.error_code = error_code if isinstance(error_code, ErrorCode) else ErrorCode(error_code) if error_code else None
+        # Server-supplied error codes may not be in our ErrorCode enum;
+        # store the raw string in that case rather than crashing exception
+        # construction with ValueError.
+        if isinstance(error_code, ErrorCode):
+            self.error_code = error_code
+        elif error_code:
+            try:
+                self.error_code = ErrorCode(error_code)
+            except (ValueError, KeyError):
+                self.error_code = error_code
+        else:
+            self.error_code = None
         self.status_code = status_code
         self.operation = operation
         self.entity = entity
@@ -112,8 +123,11 @@ class AcumaticaError(Exception):
         self.timestamp = datetime.now(timezone.utc)
         self.context = kwargs
 
-        # Log the error with context
-        logger.error(self.get_detailed_message())
+        # Library code shouldn't log on exception construction - the
+        # caller decides whether the failure is interesting. Log at
+        # DEBUG so users opting into verbose logging still get the
+        # detailed context.
+        logger.debug(self.get_detailed_message())
 
     def get_detailed_message(self) -> str:
         """Get a detailed, formatted error message."""

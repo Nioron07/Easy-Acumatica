@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import textwrap
 from dataclasses import Field, field, make_dataclass
 from typing import Any, Dict, ForwardRef, List, Optional, Tuple, Type, get_type_hints
 
 from .core import BaseDataClassModel
+
+logger = logging.getLogger(__name__)
 
 
 def _generate_model_docstring(name: str, definition: Dict[str, Any]) -> str:
@@ -69,7 +72,7 @@ class ModelFactory:
                 resolved_annotations = get_type_hints(model, globalns=self._models, localns=self._models)
                 model.__annotations__ = resolved_annotations
             except Exception as e:
-                print(f"Warning: Could not resolve type hints for model {model.__name__}: {e}")
+                logger.warning(f"Could not resolve type hints for model {model.__name__}: {e}")
 
         return self._models
 
@@ -112,9 +115,13 @@ class ModelFactory:
             from typing import get_origin, get_args, Union, ForwardRef
             import dataclasses
 
+            # Unknown / unrenderable annotations fall back to ``Any`` so a
+            # single odd field never crashes whole-schema introspection.
+            unknown = {"type": "Any", "fields": {}}
+
             # Handle None type
             if field_type is type(None):
-                raise ValueError(f"ERROR: NoneType encountered - field_type={field_type}")
+                return unknown
 
             # Get origin for generic types (List, Optional, etc.)
             origin = get_origin(field_type)
@@ -125,7 +132,7 @@ class ModelFactory:
                 # Filter out NoneType
                 non_none_args = [arg for arg in args if arg is not type(None)]
                 if len(non_none_args) == 0:
-                    raise ValueError(f"ERROR: Union with only None types - field_type={field_type}, args={args}")
+                    return unknown
                 elif len(non_none_args) == 1:
                     return _simplify_type_impl(non_none_args[0], visited, model_registry)
                 elif len(non_none_args) > 1:
@@ -142,7 +149,7 @@ class ModelFactory:
                     # Re-get origin after resolving ForwardRef
                     origin = get_origin(field_type)
                 else:
-                    raise ValueError(f"ERROR: ForwardRef '{ref_name}' not found in model_registry. Available: {list(model_registry.keys())[:10]}")
+                    return unknown
 
             # Handle List types
             if origin is list:
@@ -182,8 +189,8 @@ class ModelFactory:
                         }
 
                     # Fallback for unknown list types
-                    raise ValueError(f"ERROR: Unknown list inner type - inner_type={inner_type}")
-                raise ValueError(f"ERROR: List with no args - field_type={field_type}")
+                    return {"type": "List[Any]", "fields": {}}
+                return {"type": "List[Any]", "fields": {}}
 
             # Handle dataclass models
             if dataclasses.is_dataclass(field_type):
@@ -210,7 +217,7 @@ class ModelFactory:
                     return {"type": type_name, "fields": {}}
 
             # Default for unknown types
-            raise ValueError(f"ERROR: Unknown type - field_type={field_type}, type={type(field_type)}, hasattr __name__={hasattr(field_type, '__name__')}")
+            return unknown
 
         def _get_simple_schema_impl(model_class: type, visited: set, model_registry: Dict[str, type]) -> Dict[str, Any]:
             """Extract simplified schema from dataclass, recursively expanding nested models."""
@@ -294,7 +301,7 @@ class ModelFactory:
                 if "Int" in ref_name or "Short" in ref_name or "Long" in ref_name or "Byte" in ref_name: return int, None
                 if "Boolean" in ref_name: return bool, False
                 if "DateTime" in ref_name: return datetime.datetime, None
-            return ForwardRef(f"'{ref_name}'"), None
+            return ForwardRef(ref_name), None
 
         if schema_type == "array":
             item_type, _ = self._map_type(prop_details.get("items", {}), is_required=False)

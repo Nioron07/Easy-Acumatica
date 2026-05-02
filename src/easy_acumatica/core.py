@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import requests
@@ -9,6 +10,8 @@ import requests
 from .helpers import _raise_with_detail
 from .exceptions import AcumaticaValidationError, AcumaticaSchemaError, AcumaticaError
 from .odata import QueryOptions
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
@@ -88,27 +91,6 @@ class BatchMethodWrapper:
         return BatchMethodWrapper(bound_method, instance)
 
 
-def add_batch_support(service_class):
-    """
-    Class decorator to add batch calling support to all public methods of a service.
-    """
-    # Get all method names that should have batch support
-    method_names = [name for name in dir(service_class) 
-                   if not name.startswith('_') and 
-                   callable(getattr(service_class, name, None)) and
-                   name not in ['entity_name', 'endpoint_name']]  # Skip attributes
-    
-    # Wrap each method
-    for method_name in method_names:
-        original_method = getattr(service_class, method_name)
-        if callable(original_method):
-            wrapper = BatchMethodWrapper(original_method, None)
-            setattr(service_class, method_name, wrapper)
-    
-    return service_class
-
-
-@add_batch_support
 class BaseService:
     """
     A base service that handles common API request logic, including
@@ -155,16 +137,23 @@ class BaseService:
         # Add a default timeout to all requests to prevent freezing
         kwargs.setdefault('timeout', 60)
 
-        resp = self._client._request(method, url, **kwargs)
-        _raise_with_detail(
-            resp,
-            operation=f"{method}_{self.entity_name}",
-            entity=self.entity_name,
-            request_data=kwargs.get('json')
-        )
-
-        if not self._client.persistent_login:
-            self._client.logout()
+        try:
+            resp = self._client._request(method, url, **kwargs)
+            _raise_with_detail(
+                resp,
+                operation=f"{method}_{self.entity_name}",
+                entity=self.entity_name,
+                request_data=kwargs.get('json'),
+            )
+        finally:
+            # Always log out non-persistent sessions, even when the request
+            # failed. Without this, error paths leak an authenticated
+            # session for the lifetime of the client.
+            if not self._client.persistent_login:
+                try:
+                    self._client.logout()
+                except Exception as logout_err:
+                    logger.debug(f"logout after error failed: {logout_err}")
 
         if resp.status_code == 204:
             return None
@@ -356,6 +345,8 @@ class BaseService:
                     url=url,
                     auth=(self._client.username, self._client._password),
                     params=params,
+                    timeout=self._client.timeout,
+                    verify=self._client.verify_ssl,
                 )
             except requests.exceptions.Timeout as e:
                 raise AcumaticaTimeoutError(

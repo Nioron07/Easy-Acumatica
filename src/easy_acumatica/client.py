@@ -63,7 +63,6 @@ import os
 import pickle
 import threading
 import time
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 from weakref import WeakSet
@@ -144,7 +143,7 @@ def load_env_file(env_file_path: Path) -> Dict[str, str]:
                 env_vars[key] = value
                 
     except Exception as e:
-        pass  # Silently skip if .env file cannot be loaded
+        logger.warning(f"Could not load .env file at {env_file_path}: {e}")
 
     return env_vars
 
@@ -511,8 +510,8 @@ class AcumaticaClient:
             if self.persistent_login and self._logged_in:
                 try:
                     self.logout()
-                except:
-                    pass
+                except Exception as logout_err:
+                    logger.debug(f"Logout during init cleanup failed: {logout_err}")
             self.session.close()
             raise
         
@@ -610,9 +609,18 @@ class AcumaticaClient:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         
-        # Set default headers
+        # Set default headers. Pull our version from package metadata so
+        # the User-Agent doesn't drift away from setup config on releases.
+        try:
+            from importlib.metadata import PackageNotFoundError, version as _pkg_version
+            try:
+                _ea_version = _pkg_version("easy_acumatica")
+            except PackageNotFoundError:
+                _ea_version = "unknown"
+        except ImportError:  # pragma: no cover
+            _ea_version = "unknown"
         session.headers.update({
-            "User-Agent": f"easy-acumatica/0.4.9 Python/{requests.__version__}",
+            "User-Agent": f"easy-acumatica/{_ea_version} Python/{requests.__version__}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         })
@@ -635,11 +643,22 @@ class AcumaticaClient:
         if not endpoints:
             raise AcumaticaConnectionError("No endpoints found on the server. Please check the base_url.")
         
-        # Store endpoint information
+        # Store endpoint information. Compare versions component-wise
+        # ("24.200.001" vs "9.1") rather than lexicographically, which
+        # would otherwise treat "9.1" as greater than "24.200.001".
+        def _version_tuple(v: str) -> tuple:
+            try:
+                return tuple(int(p) for p in (v or '0').split('.'))
+            except (ValueError, AttributeError):
+                return (0,)
+
         for endpoint in endpoints:
             name = endpoint.get('name')
-            if name and (name not in self.endpoints or 
-                        endpoint.get('version', '0') > self.endpoints[name].get('version', '0')):
+            if name and (
+                name not in self.endpoints
+                or _version_tuple(endpoint.get('version', '0'))
+                > _version_tuple(self.endpoints[name].get('version', '0'))
+            ):
                 self.endpoints[name] = endpoint
 
     def _build_components(self) -> None:
@@ -661,7 +680,11 @@ class AcumaticaClient:
         try:
             current_inquiries_xml = self._fetch_gi_xml()
         except Exception as e:
-            pass  # Could not fetch inquiries XML
+            # GI XML is optional - some tenants don't expose it - but
+            # silently dropping the error here used to mask real
+            # connectivity / auth bugs because the outer caller also
+            # swallowed exceptions. Log it so users can see what failed.
+            logger.warning(f"Could not fetch Generic Inquiries XML: {e}")
         
         if self.force_rebuild or not cache_file.exists():
             # Fresh build
@@ -736,8 +759,8 @@ class AcumaticaClient:
                     pickle.dump(cache_data, f)
                 os.replace(temp_file, cache_file)
 
-        except Exception:
-            pass  # Failed to save differential cache
+        except Exception as e:
+            logger.warning(f"Failed to save differential cache: {e}")
 
     def _load_differential_cache(self, cache_file: Path) -> Optional[Dict[str, Any]]:
         """
@@ -967,9 +990,9 @@ class AcumaticaClient:
                         
                         hash_input = json.dumps(normalized_inquiry, sort_keys=True)
                         inquiry_hashes[original_name] = hashlib.md5(hash_input.encode()).hexdigest()
-                        
+
         except Exception as e:
-            pass  # Error calculating inquiry hashes
+            logger.warning(f"Error calculating inquiry hashes: {e}")
         
         return inquiry_hashes
 
@@ -1010,9 +1033,9 @@ class AcumaticaClient:
                             'entity_type': entity_type,
                             'method_name': self._generate_inquiry_method_name(original_name)
                         }
-                        
+
         except Exception as e:
-            pass  # Error extracting inquiry definitions
+            logger.warning(f"Error extracting inquiry definitions: {e}")
         
         return inquiry_defs
 
@@ -1065,12 +1088,9 @@ class AcumaticaClient:
                         inquiries_service, original_name, method_name, 
                         entity_type, xml_file_path
                     )
-                    
-                # Built inquiries service successfully
-                pass
 
         except Exception as e:
-            pass  # Could not build inquiries service
+            logger.warning(f"Could not build inquiries service: {e}")
 
     def _clear_inquiry_methods(self, service) -> None:
         """Remove existing inquiry methods from service."""
@@ -1168,7 +1188,6 @@ class AcumaticaClient:
         metadata_url = f"{self.base_url}/t/{self.tenant}/api/odata/gi/$metadata"
 
         try:
-            import requests
             response = requests.get(
                 url=metadata_url,
                 auth=(self.username, self._password)
@@ -1176,7 +1195,6 @@ class AcumaticaClient:
             response.raise_for_status()
 
             # Save to metadata directory
-            import os
             package_dir = os.path.dirname(os.path.abspath(__file__))
             metadata_dir = os.path.join(package_dir, ".metadata")
             if self._cache_dir_overridden:
@@ -1191,7 +1209,8 @@ class AcumaticaClient:
             return output_path
 
         except Exception as e:
-            raise  # Error fetching inquiries metadata
+            logger.debug(f"Error fetching Generic Inquiries metadata: {e}")
+            raise
 
     # ... [Rest of the existing methods from the previous artifact] ...
 
@@ -1335,9 +1354,8 @@ class AcumaticaClient:
                 model_class = factory._get_or_build_model(model_name)
                 setattr(self.models, model_name, model_class)
                 self._model_classes[model_name] = model_class
-                pass  # Model built successfully
             except Exception as e:
-                pass  # Failed to build model
+                logger.warning(f"Failed to build model {model_name}: {e}")
 
     def _build_specific_services(self, schema: Dict[str, Any], service_names: Set[str]) -> None:
         """Build only specific services from the schema."""
@@ -1476,13 +1494,16 @@ class AcumaticaClient:
         key_string = '|'.join(key_parts)
         return hashlib.md5(key_string.encode()).hexdigest()
 
-    @lru_cache(maxsize=32)
     def _fetch_schema(self, endpoint_name: str = "Default", version: str = None) -> Dict[str, Any]:
         """
         Fetches and caches the OpenAPI schema for a given endpoint.
 
         Lookup order: in-memory dict -> on-disk gzip JSON -> network fetch.
         The on-disk layer saves ~3 MB of bandwidth per startup when fresh.
+
+        ``self._schema_cache`` already provides in-memory caching, so we
+        don't decorate with ``@lru_cache`` (which would also pin ``self``
+        in a class-level cache).
 
         Args:
             endpoint_name: Name of the API endpoint
@@ -1927,8 +1948,6 @@ class AcumaticaClient:
             >>> info = client.get_session_info()
             >>> print(f"Logged in: {info['logged_in']}")
         """
-        import time
-
         return {
             'base_url': self.base_url,
             'tenant': self.tenant,
@@ -1974,8 +1993,6 @@ class AcumaticaClient:
             >>> info = client.get_schema_info()
             >>> print(f"Schema version: {info['endpoint_version']}")
         """
-        import os
-
         schema_size = 0
         if hasattr(self, '_schema_cache'):
             # Estimate size of cached schemas
@@ -2030,8 +2047,6 @@ class AcumaticaClient:
             >>> result = client.test_connection()
             >>> print(f"Server reachable: {result['reachable']}")
         """
-        import time
-
         result = {
             'reachable': False,
             'response_time': None,
@@ -2302,8 +2317,8 @@ class AcumaticaClient:
                     import shutil
                     shutil.rmtree(self.cache_dir)
                     self.cache_dir.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    pass  # Failed to clear disk cache
+                except Exception as e:
+                    logger.warning(f"Failed to clear disk cache at {self.cache_dir}: {e}")
 
             # Reset counters
             self._cache_hits = 0
@@ -2655,7 +2670,6 @@ Monitoring:
         Raises:
             AcumaticaError: If request fails
         """
-        import time
         start_time = time.time()
 
         # Track request for statistics
@@ -2666,20 +2680,12 @@ Monitoring:
             self._requests_by_endpoint = {}
             self._response_times = []
 
-        # Apply rate limiting by calling the rate limiter directly
-        with self._rate_limiter._lock:
-            current_time = time.time()
-            time_passed = current_time - self._rate_limiter._last_call_time
-            self._rate_limiter._tokens = min(
-                self._rate_limiter.burst_size,
-                self._rate_limiter._tokens + time_passed * self._rate_limiter.calls_per_second
-            )
-            if self._rate_limiter._tokens < 1.0:
-                sleep_time = (1.0 - self._rate_limiter._tokens) / self._rate_limiter.calls_per_second
-                time.sleep(sleep_time)
-                self._rate_limiter._tokens = 1.0
-            self._rate_limiter._tokens -= 1.0
-            self._rate_limiter._last_call_time = time.time()
+        # Apply rate limiting. The token reservation happens under the
+        # limiter's lock; the actual sleep happens outside it so concurrent
+        # callers don't serialize through one another's wait windows.
+        sleep_time = self._rate_limiter._reserve_token()
+        if sleep_time > 0:
+            time.sleep(sleep_time)
         
         # Set default timeout if not specified
         kwargs.setdefault('timeout', self.timeout)
@@ -2728,7 +2734,6 @@ Monitoring:
 
     def _track_request(self, method: str, url: str, status_code: Optional[int], response_time: float, error: Optional[Exception]) -> None:
         """Track request for statistics and history."""
-        import time
         from urllib.parse import urlparse
 
         # Update basic counters
@@ -2829,12 +2834,12 @@ Monitoring:
             if self._logged_in:
                 self.logout()
         except Exception as e:
-            pass  # Error during logout
-        
+            logger.debug(f"Error during logout in close(): {e}")
+
         try:
             self.session.close()
         except Exception as e:
-            pass  # Error closing session
+            logger.debug(f"Error closing session in close(): {e}")
         
         # Clear caches
         self._schema_cache.clear()
@@ -2873,4 +2878,4 @@ def _cleanup_all_clients() -> None:
         try:
             client.close()
         except Exception as e:
-            pass  # Error cleaning up client
+            logger.debug(f"Error cleaning up client at exit: {e}")

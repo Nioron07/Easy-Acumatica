@@ -17,11 +17,8 @@ import requests
 
 from .exceptions import (
     AcumaticaConnectionError,
-    AcumaticaError,
     AcumaticaTimeoutError,
-    AcumaticaValidationError,
     parse_api_error,
-    enhance_exception_with_request_context
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +97,6 @@ def _raise_with_detail(
             )
 
     # If we get here, we couldn't parse a specific error
-    msg = f"Acumatica API error {resp.status_code}: {detail}"
     raise parse_api_error(
         {"message": detail},
         resp.status_code,

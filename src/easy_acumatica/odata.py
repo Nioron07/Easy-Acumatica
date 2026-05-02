@@ -108,7 +108,16 @@ class Filter:
         return Filter(f"{func_name}({','.join(all_args)})")
 
     # --- Comparison Operators (OData v3, v4) ---
-    def __eq__(self, other: Any) -> Filter: 
+    #
+    # WARNING: ``__eq__`` here intentionally returns a ``Filter`` (not a
+    # ``bool``) so users can write ``F.Name == 'foo'`` to build OData
+    # expressions. That means ``F.Name == F.Other`` does NOT compare the
+    # two field references - it builds an OData equality filter.
+    # Identity / membership checks should use ``is`` and ``is not``.
+    # ``__hash__`` is set to None below to make this explicit so attempts
+    # to use these in a set / dict key fail loudly rather than silently.
+
+    def __eq__(self, other: Any) -> Filter:
         """Equality operator. Supported in: OData v3, v4"""
         return self._binary_op("eq", other)
     

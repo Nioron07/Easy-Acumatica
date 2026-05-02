@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 import os
@@ -13,6 +14,8 @@ from .odata import QueryOptions
 
 if TYPE_CHECKING:
     from .client import AcumaticaClient
+
+logger = logging.getLogger(__name__)
 
 def to_snake_case(name: str) -> str:
     """
@@ -283,10 +286,14 @@ class ServiceFactory:
                     entity_type = entity_set.get('EntityType')
                     if not original_name: continue
                     method_name = re.sub(r"[-\s]+", "_", original_name)
+                    # Python identifiers can't start with a digit
+                    # (e.g. "401K Report" -> "401K_Report" is invalid).
+                    if method_name and method_name[0].isdigit():
+                        method_name = f"gi_{method_name}"
                     self._add_inquiry_method(inquiries_service, original_name, method_name, entity_type)
 
         except Exception as e:
-            print(f"Could not build methods for Inquiries service: {e}")
+            logger.warning(f"Could not build methods for Inquiries service: {e}")
 
         return services
 
@@ -332,31 +339,21 @@ class ServiceFactory:
         return None
 
     def _is_custom_endpoint(self, tag: str, operations: list) -> bool:
+        """Determine if a tag represents a Generic Inquiry custom endpoint.
+
+        We require an explicit ``(GI<digits>)`` marker in the tag's
+        description. The previous heuristic also returned True for any
+        read-only tag (no Post/PutEntity operations), which silently
+        misclassified legitimate lookup services and replaced their real
+        methods with the GI query stub.
         """
-        Determines if a service tag represents a custom endpoint (Generic Inquiry).
-
-        Custom endpoints are identified by:
-        1. Having a description that mentions "GI" followed by numbers (e.g., "GI908032")
-        2. Having operations that suggest they're read-only inquiries
-        """
-        # Look for GI pattern in schema tags
-        if 'tags' in self._schema:
-            for tag_info in self._schema['tags']:
-                if tag_info.get('name') == tag:
-                    description = tag_info.get('description', '')
-                    # Check if description contains GI followed by numbers (Generic Inquiry pattern)
-                    if re.search(r'\(GI\d+\)', description):
-                        return True
-
-        # Additional heuristic: if the tag only has GET operations and PUT that might be for querying
-        has_create_update_ops = any(
-            'Post' in details.get('operationId', '') or
-            ('Put' in details.get('operationId', '') and 'Entity' in details.get('operationId', ''))
-            for _, _, details in operations
-        )
-
-        # Custom endpoints typically don't have true creation operations
-        return not has_create_update_ops
+        if 'tags' not in self._schema:
+            return False
+        for tag_info in self._schema['tags']:
+            if tag_info.get('name') == tag:
+                description = tag_info.get('description', '') or ''
+                return bool(re.search(r'\(GI\d+\)', description))
+        return False
 
     def _add_custom_endpoint_method(self, service: BaseService, path: str, http_method: str, details: Dict[str, Any]):
         """
@@ -548,7 +545,6 @@ class ServiceFactory:
                     not isinstance(v, (dict, list)) and v not in [None, "", [], {}]
                 )
             }
-            print(entity_payload)
 
             return self._post_action(action_name, entity_payload, parameters=params_payload, api_version=api_version)
 

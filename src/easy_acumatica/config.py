@@ -13,7 +13,8 @@ Provides flexible configuration options through:
 
 import json
 import os
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Dict, Optional
 from .exceptions import AcumaticaConfigError, ErrorCode
@@ -23,6 +24,8 @@ try:
     HAS_YAML = True
 except ImportError:
     HAS_YAML = False
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -117,14 +120,20 @@ class AcumaticaConfig:
             if value is None:
                 return None
             if type_fn == bool:
-                # Handle the case where default is already a bool
                 if isinstance(value, bool):
                     return value
-                # Convert string to bool
                 return str(value).lower() in ('true', '1', 'yes', 'on')
             elif type_fn == Path:
                 return Path(value) if value else None
-            return type_fn(value)
+            # Empty strings would crash int()/float(); fall back to default
+            # so an unset-but-present env var (common in shells) is treated
+            # like a missing one.
+            if isinstance(value, str) and not value.strip() and type_fn is not str:
+                return default
+            try:
+                return type_fn(value)
+            except (TypeError, ValueError):
+                return default
         
         # Check for required fields
         required = ['URL', 'USERNAME', 'PASSWORD', 'TENANT']
@@ -213,18 +222,20 @@ class AcumaticaConfig:
                         ]
                     )
         
-        # Handle potential key variations and Path conversion
+        # Handle potential key variations and Path conversion. Filter
+        # unknown keys (matching from_dict behaviour) so a stale config
+        # file with leftover keys doesn't crash the constructor.
+        valid_fields = {f.name for f in fields(cls)}
         normalized_data = {}
         for key, value in data.items():
-            # Convert from various naming conventions
             normalized_key = key.lower().replace('-', '_')
-            
-            # Convert cache_dir string to Path
+            if normalized_key not in valid_fields:
+                logger.debug(f"Ignoring unknown config key '{key}' in {path}")
+                continue
             if normalized_key == 'cache_dir' and value is not None:
                 value = Path(value)
-                
             normalized_data[normalized_key] = value
-        
+
         return cls(**normalized_data)
     
     def to_file(self, path: Path, file_format: Optional[str] = None, 

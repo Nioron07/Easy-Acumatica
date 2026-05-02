@@ -17,10 +17,7 @@ from typing import Any, Callable, List, Optional, TypeVar, Union
 
 import requests
 
-from .exceptions import (
-    AcumaticaRetryExhaustedError,
-    AcumaticaValidationError
-)
+from .exceptions import AcumaticaValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -62,19 +59,17 @@ def retry_on_error(
         def wrapper(*args: Any, **kwargs: Any) -> T:
             attempt = 1
             current_delay = delay
-            last_exception = None
             
             while attempt <= max_attempts:
                 try:
                     return func(*args, **kwargs)
                 except exceptions as e:
-                    last_exception = e
                     if attempt == max_attempts:
                         logger.error(
                             f"Max retries ({max_attempts}) exceeded for {getattr(func, '__name__', repr(func))}: {e}"
                         )
                         raise
-                    
+
                     logger.warning(
                         f"Attempt {attempt}/{max_attempts} failed for {getattr(func, '__name__', repr(func))}: {e}. "
                         f"Retrying in {current_delay:.1f}s..."
@@ -82,15 +77,6 @@ def retry_on_error(
                     time.sleep(current_delay)
                     current_delay *= backoff
                     attempt += 1
-            
-            # This should never be reached, but just in case
-            if last_exception:
-                raise last_exception
-            raise AcumaticaRetryExhaustedError(
-                f"Unexpected error in retry logic for {getattr(func, '__name__', repr(func))}",
-                attempts=max_attempts,
-                last_error=last_exception
-            )
         
         return wrapper
     return decorator
@@ -123,33 +109,46 @@ class RateLimiter:
         self._lock = threading.Lock()
     
     def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
-        """Decorator to apply rate limiting to a function."""
+        """Decorator to apply rate limiting to a function.
+
+        Reserves a token under ``self._lock``, then sleeps **outside** the
+        lock so concurrent callers can compute their own wait windows in
+        parallel. Holding ``time.sleep`` inside the lock would serialize
+        every limited call through the same sleep, defeating the burst
+        bucket and effectively single-threading all traffic.
+        """
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
-            with self._lock:
-                current_time = time.time()
-                
-                # Calculate tokens accumulated since last call
-                time_passed = current_time - self._last_call_time
-                self._tokens = min(
-                    self.burst_size,
-                    self._tokens + time_passed * self.calls_per_second
-                )
-                
-                # Check if we have tokens available
-                if self._tokens < 1.0:
-                    sleep_time = (1.0 - self._tokens) / self.calls_per_second
-                    logger.debug(f"Rate limit reached, sleeping for {sleep_time:.3f}s")
-                    time.sleep(sleep_time)
-                    self._tokens = 1.0
-                
-                # Consume one token
-                self._tokens -= 1.0
-                self._last_call_time = time.time()
-            
+            sleep_time = self._reserve_token()
+            if sleep_time > 0:
+                logger.debug(f"Rate limit reached, sleeping for {sleep_time:.3f}s")
+                time.sleep(sleep_time)
             return func(*args, **kwargs)
-        
+
         return wrapper
+
+    def _reserve_token(self) -> float:
+        """Refill, reserve one token, and return how long the caller should sleep."""
+        with self._lock:
+            current_time = time.time()
+            time_passed = current_time - self._last_call_time
+            self._tokens = min(
+                self.burst_size,
+                self._tokens + time_passed * self.calls_per_second,
+            )
+
+            sleep_time = 0.0
+            if self._tokens < 1.0:
+                sleep_time = (1.0 - self._tokens) / self.calls_per_second
+                # Pretend the sleep already happened so the next caller's
+                # accounting starts after our reserved slot.
+                self._tokens = 1.0
+                self._last_call_time = current_time + sleep_time
+            else:
+                self._last_call_time = current_time
+
+            self._tokens -= 1.0
+            return sleep_time
 
 
 def validate_entity_id(entity_id: Union[str, List[str]]) -> str:
