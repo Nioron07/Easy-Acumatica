@@ -53,6 +53,7 @@ Usage example
 from __future__ import annotations
 
 import atexit
+import contextlib
 import gzip
 import hashlib
 import inspect
@@ -447,15 +448,22 @@ class AcumaticaClient:
         if self.cache_enabled:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize session with connection pooling and retry logic
-        self.session: requests.Session = self._create_session()
-        
+        # Initialize session with connection pooling and retry logic.
+        # Stored on the underlying _session attr so the public ``session``
+        # property can layer in a thread-local override (used by BatchCall
+        # to give each worker thread its own authenticated session without
+        # racing other threads).
+        self._session: requests.Session = self._create_session()
+        # Thread-local holder for `session` / `_logged_in` overrides set by
+        # ``with self._use_thread_session(session):``.
+        self._thread_local = threading.local()
+
         # Rate limiter
         self._rate_limiter = RateLimiter(calls_per_second=rate_limit_calls_per_second)
-        
+
         # State tracking
         self.endpoints: Dict[str, Dict] = {}
-        self._logged_in: bool = False
+        self._logged_in_default: bool = False
         self._available_services: Set[str] = set()
         self._schema_cache: Dict[str, Any] = {}
         self._model_classes: Dict[str, Type[BaseDataClassModel]] = {}
@@ -524,6 +532,63 @@ class AcumaticaClient:
             'models_loaded': len(self._model_classes),
             'services_loaded': len(self._service_instances)
         }
+
+    # --- Thread-local session override -------------------------------------
+    #
+    # ``session`` and ``_logged_in`` are exposed as properties so that batch
+    # workers can temporarily redirect them on a per-thread basis without
+    # mutating shared state. Without this, two BatchCall workers would race
+    # on ``client.session = ...`` and clobber each other (and any foreground
+    # caller using the same client mid-batch).
+
+    @property
+    def session(self) -> requests.Session:
+        override = getattr(self._thread_local, 'session', None)
+        return override if override is not None else self._session
+
+    @session.setter
+    def session(self, value: requests.Session) -> None:
+        # Plain assignment goes to the shared default; thread overrides
+        # are managed exclusively through _use_thread_session().
+        self._session = value
+
+    @property
+    def _logged_in(self) -> bool:
+        override = getattr(self._thread_local, 'logged_in', None)
+        return override if override is not None else self._logged_in_default
+
+    @_logged_in.setter
+    def _logged_in(self, value: bool) -> None:
+        # When a thread override is active, write to the override so the
+        # owning thread keeps a coherent view; otherwise write through to
+        # the shared default.
+        if getattr(self._thread_local, 'session', None) is not None:
+            self._thread_local.logged_in = value
+        else:
+            self._logged_in_default = value
+
+    @contextlib.contextmanager
+    def _use_thread_session(self, session: requests.Session, logged_in: bool = True):
+        """Scope a thread-local session override. Used by BatchCall to give
+        each worker its own authenticated session without racing other
+        workers or any foreground call on the same client.
+        """
+        prev_session = getattr(self._thread_local, 'session', None)
+        prev_logged_in = getattr(self._thread_local, 'logged_in', None)
+        self._thread_local.session = session
+        self._thread_local.logged_in = logged_in
+        try:
+            yield
+        finally:
+            if prev_session is None:
+                # Clean removal so the next call sees no override.
+                if hasattr(self._thread_local, 'session'):
+                    del self._thread_local.session
+                if hasattr(self._thread_local, 'logged_in'):
+                    del self._thread_local.logged_in
+            else:
+                self._thread_local.session = prev_session
+                self._thread_local.logged_in = prev_logged_in
 
     def _create_session(self) -> requests.Session:
         """

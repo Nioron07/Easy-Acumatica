@@ -1,33 +1,45 @@
-"""Improved batch calling implementation that uses separate sessions for each call
-to achieve optimal performance by avoiding serialization bottlenecks."""
+"""Pooled-session batch execution.
+
+For N calls and ``max_concurrent=K``, the batch spawns
+``min(K, N)`` worker threads. Each worker authenticates **one** HTTP
+session and reuses it for every call it pulls off a shared queue. So 10
+calls with ``max_concurrent=5`` produce exactly 5 logins (not 10), each
+session running ~2 calls back-to-back. Service calls execute under the
+worker's session via the client's thread-local session override; lambdas
+and other non-service callables run without a session.
+"""
 
 import concurrent.futures
 import logging
+import queue
+import threading
 import time
-import requests
 from dataclasses import dataclass
-from .exceptions import (
-    AcumaticaError,
-    AcumaticaBatchError,
-    AcumaticaAuthError,
-    ErrorCode
-)
 from typing import Any, Callable, List, Optional, Tuple, Union
 
+import requests
+from requests.adapters import HTTPAdapter
+
+from .exceptions import AcumaticaBatchError
+
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class BatchCallResult:
     """Result of a single call within a batch."""
+
     success: bool
     result: Any = None
     error: Optional[Exception] = None
     execution_time: float = 0.0
     call_index: int = 0
 
+
 @dataclass
 class BatchCallStats:
     """Statistics for a batch execution."""
+
     total_calls: int = 0
     successful_calls: int = 0
     failed_calls: int = 0
@@ -37,28 +49,34 @@ class BatchCallStats:
     min_call_time: float = 0.0
     concurrency_level: int = 0
 
+
 class CallableWrapper:
     """Wrapper for API calls that allows deferred execution."""
-    
+
     def __init__(self, func: Callable, *args, **kwargs):
         self.func = func
         self.args = args
         self.kwargs = kwargs
-        self.method_name = getattr(func, '__name__', 'unknown')  # Add method_name attribute
-    
+        self.method_name = getattr(
+            func, "__name__", "unknown"
+        )  # Add method_name attribute
+
     def execute(self) -> Any:
         """Execute the wrapped function call synchronously."""
         return self.func(*self.args, **self.kwargs)
 
+
 class BatchCall:
+    """Execute multiple API calls concurrently using a pool of authenticated sessions.
+
+    For N calls and ``max_concurrent=K``, the batch spawns ``min(K, N)``
+    worker threads. Each worker authenticates one ``requests.Session`` and
+    reuses it for every call it processes off a shared queue, so the
+    server sees roughly N/K calls per session and only ``min(K, N)``
+    /auth/login posts in total. Workers run in parallel; results come
+    back ordered by submission index.
     """
-    Execute multiple API calls concurrently using separate HTTP sessions for optimal performance.
-    
-    This implementation creates separate HTTP sessions under the same AcumaticaClient to avoid
-    serialization bottlenecks while reusing the already-built schema and service infrastructure.
-    Each session is authenticated independently and cleaned up after use.
-    """
-    
+
     def __init__(
         self,
         *calls: Union[CallableWrapper, Callable],
@@ -66,16 +84,16 @@ class BatchCall:
         timeout: Optional[float] = None,
         fail_fast: bool = False,
         return_exceptions: bool = True,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ):
         """Initialize a batch call with separate HTTP sessions execution."""
         self.calls: List[CallableWrapper] = []
-        self.max_concurrent = max_concurrent or 10
+        self.max_concurrent = max_concurrent or 5
         self.timeout = timeout
         self.fail_fast = fail_fast
         self.return_exceptions = return_exceptions
         self.progress_callback = progress_callback
-        
+
         # Process input calls
         for call in calls:
             if isinstance(call, CallableWrapper):
@@ -83,110 +101,90 @@ class BatchCall:
             elif callable(call):
                 self.calls.append(CallableWrapper(call))
             else:
-                raise TypeError(f"Invalid call type: {type(call)}. Must be callable or CallableWrapper.")
-        
+                raise TypeError(
+                    f"Invalid call type: {type(call)}. Must be callable or CallableWrapper."
+                )
+
         # State tracking
         self.results: List[BatchCallResult] = []
         self.stats: BatchCallStats = BatchCallStats()
         self.executed: bool = False
-        
-        logger.debug(f"Created BatchCall with {len(self.calls)} calls using separate HTTP sessions")
-    
+
+        logger.debug(
+            f"Created BatchCall with {len(self.calls)} calls (pooled sessions)"
+        )
+
     def execute(self) -> Tuple[Any, ...]:
-        """
-        Execute all calls concurrently using separate HTTP sessions for optimal performance.
-        
-        Each call gets its own HTTP session to avoid serialization bottlenecks while
-        reusing the existing client schema and services. Sessions are automatically
-        authenticated and cleaned up.
+        """Execute the batch using a pool of authenticated worker sessions.
+
+        ``min(max_concurrent, len(calls))`` workers run in parallel; each
+        owns one session, pulls calls off a shared queue, and runs them
+        sequentially under that session. Results are stored ordered by
+        the original submission index.
         """
         if self.executed:
             logger.warning("BatchCall already executed, returning cached results")
             return self.get_results_tuple()
-        
+
         if not self.calls:
-            self.stats = BatchCallStats(
-                total_calls=0,
-                successful_calls=0,
-                failed_calls=0,
-                total_time=0.0,
-                concurrency_level=0
-            )
+            self.stats = BatchCallStats(concurrency_level=0)
             self.executed = True
             return tuple()
-        
-        start_time = time.time()
-        self.results = [BatchCallResult(success=False, call_index=i) for i in range(len(self.calls))]
-        
-        logger.info(f"Starting separate HTTP session batch execution with {len(self.calls)} calls, max concurrent: {self.max_concurrent}")
-        
-        first_error = None
-        
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent) as executor:
-                # Submit all tasks with separate session execution
-                future_to_index = {
-                    executor.submit(self._execute_call_with_separate_session, call, i): i
-                    for i, call in enumerate(self.calls)
-                }
-                
-                # Wait for completion with optional timeout
-                try:
-                    completed_futures = concurrent.futures.as_completed(
-                        future_to_index.keys(), 
-                        timeout=self.timeout
-                    )
-                except concurrent.futures.TimeoutError:
-                    logger.error(f"Batch execution timed out after {self.timeout} seconds")
-                    raise
-                
-                completed_count = 0
-                
-                for future in completed_futures:
-                    index = future_to_index[future]
-                    try:
-                        result = future.result()  # This will re-raise any exception from the thread
-                        self.results[index] = result
-                    except Exception as e:
-                        # Create an error result
-                        self.results[index] = BatchCallResult(
-                            success=False,
-                            error=e,
-                            execution_time=0.0,
-                            call_index=index
-                        )
-                        if self.fail_fast and first_error is None:
-                            first_error = e
-                    
-                    completed_count += 1
-                    
-                    # Progress callback
-                    if self.progress_callback:
-                        try:
-                            self.progress_callback(completed_count, len(self.calls))
-                        except Exception as e:
-                            logger.warning(f"Progress callback failed: {e}")
-                    
-                    # Handle fail_fast
-                    if self.fail_fast and first_error:
-                        raise AcumaticaBatchError(
-                            f"Batch execution failed (fail_fast=True): {first_error}",
-                            failed_operations=[{"index": index, "error": str(first_error)}]
-                        )
 
-                
-        except Exception as e:
-            logger.error(f"Batch execution failed: {e}")
-            if not self.return_exceptions:
-                raise
-            # If return_exceptions is True, we continue to process results
-        
+        start_time = time.time()
+        self.results = [
+            BatchCallResult(success=False, call_index=i) for i in range(len(self.calls))
+        ]
+
+        worker_count = min(self.max_concurrent, len(self.calls))
+        work_queue: "queue.Queue[Tuple[int, CallableWrapper]]" = queue.Queue()
+        for i, call in enumerate(self.calls):
+            work_queue.put((i, call))
+
+        stop_event = threading.Event()
+        progress_lock = threading.Lock()
+        progress_state = {
+            "completed": 0,
+            "first_error": None,
+            "first_error_index": None,
+        }
+
+        logger.info(
+            f"Starting pooled-session batch: {len(self.calls)} calls, "
+            f"{worker_count} worker session(s)"
+        )
+
+        timed_out = False
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=worker_count
+        ) as executor:
+            worker_futures = [
+                executor.submit(
+                    self._worker, work_queue, stop_event, progress_lock, progress_state
+                )
+                for _ in range(worker_count)
+            ]
+            try:
+                for fut in concurrent.futures.as_completed(
+                    worker_futures, timeout=self.timeout
+                ):
+                    fut.result()  # surface any unexpected worker exception
+            except concurrent.futures.TimeoutError:
+                timed_out = True
+                stop_event.set()
+                logger.error(f"Batch execution timed out after {self.timeout} seconds")
+
+        if timed_out and not self.return_exceptions:
+            raise concurrent.futures.TimeoutError(
+                f"Batch execution timed out after {self.timeout} seconds"
+            )
+
         # Calculate statistics
         total_time = time.time() - start_time
         call_times = [r.execution_time for r in self.results if r.execution_time > 0]
         successful = sum(1 for r in self.results if r.success)
         failed = len(self.results) - successful
-        
+
         self.stats = BatchCallStats(
             total_calls=len(self.calls),
             successful_calls=successful,
@@ -195,182 +193,211 @@ class BatchCall:
             average_call_time=sum(call_times) / len(call_times) if call_times else 0,
             max_call_time=max(call_times) if call_times else 0,
             min_call_time=min(call_times) if call_times else 0,
-            concurrency_level=min(self.max_concurrent, len(self.calls))
+            concurrency_level=worker_count,
         )
-        
+
         self.executed = True
-        
+
         logger.info(
-            f"Separate HTTP session batch execution completed in {total_time:.2f}s: "
+            f"Pooled-session batch completed in {total_time:.2f}s: "
             f"{successful}/{len(self.calls)} successful"
         )
-        
-        # Handle fail_fast
-        if self.fail_fast and first_error:
-            raise Exception(f"Batch execution failed (fail_fast=True): {first_error}")
-        
+
+        first_error = progress_state["first_error"]
+        if self.fail_fast and first_error is not None:
+            failed_operations = [
+                {
+                    "index": r.call_index,
+                    "error": str(r.error),
+                    "operation": getattr(
+                        self.calls[r.call_index], "method_name", "unknown"
+                    ),
+                }
+                for r in self.results
+                if not r.success and r.error is not None
+            ]
+            raise AcumaticaBatchError(
+                f"Batch execution failed (fail_fast=True) at call "
+                f"{progress_state['first_error_index']}: {first_error}",
+                failed_operations=failed_operations,
+            )
+
         return self.get_results_tuple()
-    
-    def _execute_call_with_separate_session(self, call: CallableWrapper, index: int) -> BatchCallResult:
+
+    def _worker(
+        self,
+        work_queue: "queue.Queue",
+        stop_event: threading.Event,
+        progress_lock: threading.Lock,
+        progress_state: dict,
+    ) -> None:
+        """One pooled worker: lazily authenticates a single session on its
+        first service-bound call and reuses it for every subsequent call
+        it pulls off the shared queue. Logs out and closes when the queue
+        empties or ``stop_event`` is set.
         """
-        Execute a single call using a completely separate authenticated HTTP session.
-        
-        Args:
-            call: The call to execute
-            index: Index of this call in the batch
-            
-        Returns:
-            BatchCallResult with execution details
+        own_client: Any = None
+        own_session: Optional[requests.Session] = None
+        try:
+            while not stop_event.is_set():
+                try:
+                    index, call = work_queue.get_nowait()
+                except queue.Empty:
+                    return
+
+                call_start = time.time()
+                client_from_call = self._get_original_client_from_call(call)
+
+                try:
+                    if client_from_call is None:
+                        # Lambda / non-service callable - no session needed.
+                        result = call.execute()
+                    else:
+                        if own_session is None:
+                            own_client = client_from_call
+                            own_session = self._create_separate_http_session(own_client)
+                            self._authenticate_session(own_session, own_client, index)
+                        elif own_client is not client_from_call:
+                            # Rare: a call from a different client mid-batch.
+                            # Tear down the current session and re-auth so
+                            # the override matches the call's client.
+                            try:
+                                self._logout_session(own_session, own_client)
+                            finally:
+                                try:
+                                    own_session.close()
+                                except Exception:
+                                    pass
+                            own_client = client_from_call
+                            own_session = self._create_separate_http_session(own_client)
+                            self._authenticate_session(own_session, own_client, index)
+                        result = self._execute_call_with_session(
+                            call, own_session, own_client
+                        )
+
+                    self.results[index] = BatchCallResult(
+                        success=True,
+                        result=result,
+                        execution_time=time.time() - call_start,
+                        call_index=index,
+                    )
+                except Exception as e:
+                    self.results[index] = BatchCallResult(
+                        success=False,
+                        error=e,
+                        execution_time=time.time() - call_start,
+                        call_index=index,
+                    )
+                    if self.fail_fast:
+                        with progress_lock:
+                            if progress_state["first_error"] is None:
+                                progress_state["first_error"] = e
+                                progress_state["first_error_index"] = index
+                        stop_event.set()
+
+                with progress_lock:
+                    progress_state["completed"] += 1
+                    completed = progress_state["completed"]
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(completed, len(self.calls))
+                    except Exception as cb_err:
+                        logger.warning(f"Progress callback failed: {cb_err}")
+        finally:
+            if own_session is not None:
+                try:
+                    self._logout_session(own_session, own_client)
+                except Exception as e:
+                    logger.debug(f"Worker logout failed: {e}")
+                try:
+                    own_session.close()
+                except Exception as e:
+                    logger.debug(f"Worker session close failed: {e}")
+
+    def _authenticate_session(
+        self, session: "requests.Session", original_client: Any, index: int
+    ) -> None:
+        """Authenticate a session independently without touching the main client.
+
+        Concurrent logins are naturally bounded by the worker pool size
+        (``min(max_concurrent, len(calls))``); no separate semaphore is
+        needed because each worker logs in at most once.
         """
-        start_time = time.time()
-        temp_session = None
-
-        try:
-            # Get the original client from the call
-            original_client = self._get_original_client_from_call(call)
-            if not original_client:
-                # Lambdas / non-service callables - execute directly.
-                result = call.execute()
-                execution_time = time.time() - start_time
-                return BatchCallResult(
-                    success=True,
-                    result=result,
-                    execution_time=execution_time,
-                    call_index=index,
-                )
-
-            logger.debug(f"Creating separate session for call {index}")
-
-            # Stagger concurrent logins slightly to avoid server overload.
-            if index > 0:
-                time.sleep(index * 0.1)
-
-            temp_session = self._create_separate_http_session(original_client)
-            self._authenticate_session(temp_session, original_client, index)
-            result = self._execute_call_with_session(call, temp_session, original_client)
-            self._logout_session(temp_session, original_client)
-
-            execution_time = time.time() - start_time
-            logger.debug(f"Call {index} completed successfully in {execution_time:.3f}s")
-            return BatchCallResult(
-                success=True,
-                result=result,
-                execution_time=execution_time,
-                call_index=index,
-            )
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.debug(
-                f"Call {index} failed after {execution_time:.3f}s "
-                f"with separate session: {e}"
-            )
-            raise
-
-        
-        # Final cleanup after all attempts
-        try:
-            if temp_session:
-                temp_session.close()
-                
-            logger.debug(f"Cleaned up separate session for call {index}")
-        except Exception as e:
-            logger.warning(f"Error in final cleanup for call {index}: {e}")
-        
-        # This should never be reached due to the return statements in the try block
-        return BatchCallResult(
-            success=False,
-            error=RuntimeError(f"Unexpected end of retry loop for call {index}"),
-            execution_time=time.time() - start_time,
-            call_index=index
-        )
-
-    def _authenticate_session(self, session: 'requests.Session', original_client: Any, index: int) -> None:
-        """Authenticate a session independently without touching the main client."""
         url = f"{original_client.base_url}/entity/auth/login"
-        
         for login_attempt in range(2):
             try:
                 response = session.post(
-                    url, 
-                    json=original_client._login_payload, 
+                    url,
+                    json=original_client._login_payload,
                     verify=original_client.verify_ssl,
-                    timeout=original_client.timeout
+                    timeout=original_client.timeout,
                 )
-                
                 if response.status_code == 401:
                     raise Exception("Invalid credentials")
-                
                 response.raise_for_status()
-                logger.debug(f"Session authentication successful for call {index}")
+                logger.debug(
+                    f"Worker session authentication successful (first call {index})"
+                )
                 return
-                
             except Exception as login_error:
-                logger.warning(f"Login attempt {login_attempt + 1} failed for call {index}: {login_error}")
-                if login_attempt < 1:  # Only wait if not the last attempt
+                logger.warning(
+                    f"Login attempt {login_attempt + 1} failed (worker first call {index}): {login_error}"
+                )
+                if login_attempt < 1:
                     time.sleep(0.5)
                 else:
-                    raise login_error
+                    raise
 
-    def _logout_session(self, session: 'requests.Session', original_client: Any) -> None:
+    def _logout_session(
+        self, session: "requests.Session", original_client: Any
+    ) -> None:
         """Logout a session independently."""
         try:
             url = f"{original_client.base_url}/entity/auth/logout"
-            response = session.post(url, verify=original_client.verify_ssl, timeout=original_client.timeout)
+            response = session.post(
+                url, verify=original_client.verify_ssl, timeout=original_client.timeout
+            )
             session.cookies.clear()
         except Exception as e:
             logger.debug(f"Non-critical logout error: {e}")
 
-    def _execute_call_with_session(self, call: CallableWrapper, session: 'requests.Session', original_client: Any) -> Any:
-        """Execute a call using a specific session without modifying the main client."""
-        # We need to temporarily replace the session for the duration of the call only
-        original_session = original_client.session
-        original_logged_in = original_client._logged_in
-        
-        try:
-            # Temporarily use the authenticated session
-            original_client.session = session
-            original_client._logged_in = True  # We know this session is authenticated
-            
-            # Execute the call
-            result = call.execute()
-            return result
-            
-        finally:
-            # Immediately restore original state
-            original_client.session = original_session
-            original_client._logged_in = original_logged_in
-    
+    def _execute_call_with_session(
+        self, call: CallableWrapper, session: "requests.Session", original_client: Any
+    ) -> Any:
+        """Execute a call using a specific session without mutating shared client state.
+
+        The previous implementation swapped ``original_client.session`` and
+        ``_logged_in`` directly, which raced across worker threads (and any
+        foreground caller using the same client mid-batch). We now route
+        the override through a thread-local context manager exposed on the
+        client, so each worker sees its own session while the shared
+        attributes stay untouched.
+        """
+        with original_client._use_thread_session(session, logged_in=True):
+            return call.execute()
+
     def _get_original_client_from_call(self, call: CallableWrapper) -> Any:
         """
         Extract the original AcumaticaClient from the callable wrapper.
-        
+
         Args:
             call: The CallableWrapper to extract client from
-            
+
         Returns:
             Original AcumaticaClient instance or None
         """
         # Try to get the client from the function's __self__ attribute (bound method)
-        if hasattr(call.func, '__self__'):
+        if hasattr(call.func, "__self__"):
             service_instance = call.func.__self__
-            if hasattr(service_instance, '_client'):
+            if hasattr(service_instance, "_client"):
                 return service_instance._client
-        
+
         return None
-    
-    def _create_separate_http_session(self, original_client: Any) -> 'requests.Session':
+
+    def _create_separate_http_session(self, original_client: Any) -> "requests.Session":
         """
         Create a separate HTTP session with the same configuration as the original.
-        
-        Args:
-            original_client: The original client to copy session configuration from
-            
-        Returns:
-            New requests.Session configured like the original
         """
-        import requests
-        from requests.adapters import HTTPAdapter
-
         new_session = requests.Session()
 
         # No automatic HTTP retry - surface the server's actual error to the
@@ -381,24 +408,22 @@ class BatchCall:
             max_retries=0,
             pool_block=False,
         )
-
         new_session.mount("http://", adapter)
         new_session.mount("https://", adapter)
-        
-        # Copy headers from original session but ensure fresh cookies
+
+        # Copy headers from original session but ensure fresh cookies. Note
+        # that ``requests.Session`` has no ``timeout`` attribute - per-call
+        # timeouts are set by ``_request`` in core.py, so we don't try to
+        # set one here.
         new_session.headers.update(original_client.session.headers)
-        new_session.cookies.clear()  # Start with fresh cookies
-        
-        # Set more aggressive timeouts for batch operations
-        new_session.timeout = (10, 30)  # (connect_timeout, read_timeout)
-        
+        new_session.cookies.clear()
         return new_session
-    
+
     def get_results_tuple(self) -> Tuple[Any, ...]:
         """Get results as a tuple for unpacking assignment."""
         if not self.executed:
             raise RuntimeError("Batch must be executed before accessing results")
-        
+
         results = []
         for i, batch_result in enumerate(self.results):
             if batch_result.success:
@@ -409,43 +434,50 @@ class BatchCall:
                 else:
                     raise AcumaticaBatchError(
                         f"Call {i} failed: {batch_result.error}",
-                        failed_operations=[{
-                            "index": i,
-                            "error": str(batch_result.error),
-                            "operation": getattr(self.calls[i], 'method_name', 'unknown')
-                        }]
+                        failed_operations=[
+                            {
+                                "index": i,
+                                "error": str(batch_result.error),
+                                "operation": getattr(
+                                    self.calls[i], "method_name", "unknown"
+                                ),
+                            }
+                        ],
                     )
-        
+
         return tuple(results)
-    
+
     def get_successful_results(self) -> List[Any]:
         """Get only the results from successful calls."""
         if not self.executed:
             raise RuntimeError("Batch must be executed before accessing results")
-        
+
         return [r.result for r in self.results if r.success]
-    
+
     def get_failed_calls(self) -> List[Tuple[int, CallableWrapper, Exception]]:
         """Get information about failed calls."""
         if not self.executed:
             raise RuntimeError("Batch must be executed before accessing results")
-        
+
         return [
             (r.call_index, self.calls[r.call_index], r.error)
-            for r in self.results if not r.success
+            for r in self.results
+            if not r.success
         ]
-    
-    def retry_failed_calls(self, max_concurrent: Optional[int] = None) -> 'BatchCall':
+
+    def retry_failed_calls(self, max_concurrent: Optional[int] = None) -> "BatchCall":
         """Create a new BatchCall with only the failed calls from this batch."""
         if not self.executed:
             raise RuntimeError("Batch must be executed before retrying failed calls")
-        
-        failed_calls = [self.calls[i] for i, r in enumerate(self.results) if not r.success]
-        
+
+        failed_calls = [
+            self.calls[i] for i, r in enumerate(self.results) if not r.success
+        ]
+
         if not failed_calls:
             logger.info("No failed calls to retry")
             return BatchCall()  # Empty batch
-        
+
         logger.info(f"Creating retry batch with {len(failed_calls)} failed calls")
         return BatchCall(
             *failed_calls,
@@ -453,54 +485,58 @@ class BatchCall:
             timeout=self.timeout,
             fail_fast=self.fail_fast,
             return_exceptions=self.return_exceptions,
-            progress_callback=self.progress_callback
+            progress_callback=self.progress_callback,
         )
-    
+
     def print_summary(self) -> None:
         """Print a summary of batch execution results."""
         if not self.executed:
             print("BatchCall not yet executed")
             return
-        
+
         print(f"\nSeparate HTTP Session Batch Execution Summary")
         print(f"=" * 50)
         print(f"Total Calls: {self.stats.total_calls}")
         print(f"Successful: {self.stats.successful_calls}")
         print(f"Failed: {self.stats.failed_calls}")
-        print(f"Success Rate: {(self.stats.successful_calls / self.stats.total_calls * 100):.1f}%")
+        print(
+            f"Success Rate: {(self.stats.successful_calls / self.stats.total_calls * 100):.1f}%"
+        )
         print(f"Total Time: {self.stats.total_time:.2f}s")
         print(f"Average Call Time: {self.stats.average_call_time:.3f}s")
         print(f"Fastest Call: {self.stats.min_call_time:.3f}s")
         print(f"Slowest Call: {self.stats.max_call_time:.3f}s")
         print(f"Max Concurrent HTTP Sessions: {self.stats.concurrency_level}")
-        
+
         # Show failed calls
         failed_calls = self.get_failed_calls()
         if failed_calls:
             print(f"\nFailed Calls:")
             for index, call, error in failed_calls:
                 print(f"  {index}: - {type(error).__name__}: {error}")
-    
+
     def __len__(self) -> int:
         """Return the number of calls in this batch."""
         return len(self.calls)
-    
+
     def __getitem__(self, index: int) -> BatchCallResult:
         """Get a specific result by index."""
         if not self.executed:
             raise RuntimeError("Batch must be executed before accessing results")
         return self.results[index]
-    
+
     def __iter__(self):
         """Iterate over results."""
         if not self.executed:
             raise RuntimeError("Batch must be executed before iterating results")
         return iter(self.results)
-    
+
     def __repr__(self) -> str:
         if self.executed:
-            return (f"BatchCall({len(self.calls)} calls, "
-                   f"{self.stats.successful_calls} successful, executed with separate HTTP sessions)")
+            return (
+                f"BatchCall({len(self.calls)} calls, "
+                f"{self.stats.successful_calls} successful, executed with separate HTTP sessions)"
+            )
         else:
             return f"BatchCall({len(self.calls)} calls, separate HTTP sessions, not executed)"
 
@@ -511,14 +547,25 @@ def batch_call(*calls, **kwargs) -> BatchCall:
     batch = BatchCall(*calls, **kwargs)
     return batch
 
-def create_batch_from_ids(service, entity_ids: List[str], method_name: str = 'get_by_id', **method_kwargs) -> BatchCall:
+
+def create_batch_from_ids(
+    service, entity_ids: List[str], method_name: str = "get_by_id", **method_kwargs
+) -> BatchCall:
     """Helper function to create a batch call for fetching multiple entities by ID."""
     method = getattr(service, method_name)
-    calls = [CallableWrapper(method, entity_id, **method_kwargs) for entity_id in entity_ids]
+    calls = [
+        CallableWrapper(method, entity_id, **method_kwargs) for entity_id in entity_ids
+    ]
     return BatchCall(*calls)
 
-def create_batch_from_filters(service, filters: List[Any], method_name: str = 'get_list', **method_kwargs) -> BatchCall:
+
+def create_batch_from_filters(
+    service, filters: List[Any], method_name: str = "get_list", **method_kwargs
+) -> BatchCall:
     """Helper function to create a batch call for multiple filtered queries."""
     method = getattr(service, method_name)
-    calls = [CallableWrapper(method, options=filter_obj, **method_kwargs) for filter_obj in filters]
+    calls = [
+        CallableWrapper(method, options=filter_obj, **method_kwargs)
+        for filter_obj in filters
+    ]
     return BatchCall(*calls)
