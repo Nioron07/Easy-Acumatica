@@ -98,6 +98,11 @@ class ModelBuilderScreen(ModalScreen[Optional[BaseDataClassModel]]):
         # Cached last-rendered preview text - used by the Copy action so it
         # doesn't have to rebuild the snippet from form state.
         self._last_preview: str = ''
+        # Field-name filter substring (case-insensitive). Empty string =
+        # show every field. Augmented dataclasses can have hundreds of
+        # custom fields; the filter narrows the form to a manageable
+        # subset without losing already-entered values.
+        self._field_filter: str = ''
         # Top-level mode (opened directly from the Models tab) shows just
         # Copy + Back - there is no parent to feed a saved instance back
         # into, so the live preview is the only output. Nested builders
@@ -120,15 +125,25 @@ class ModelBuilderScreen(ModalScreen[Optional[BaseDataClassModel]]):
             )
             yield Static(help_text, id='builder-help', markup=False)
             with Horizontal(id='builder-body'):
-                # The fields are inside a VerticalScroll so a tall model
-                # (e.g. SalesOrder with 50+ fields) scrolls within the panel
-                # while the title + buttons stay anchored to the panel
-                # edges. The code preview lives next to the form and updates
-                # live as the user edits inputs / nests builders.
-                yield VerticalScroll(id='builder-fields')
+                with Vertical(id='builder-fields-wrap'):
+                    # Field-name filter. Augmented models can have many
+                    # custom fields; this narrows the form to fields
+                    # whose name contains the substring (case-insensitive).
+                    yield Input(
+                        placeholder='filter fields...',
+                        id='builder-filter',
+                    )
+                    # The fields are inside a VerticalScroll so a tall
+                    # model scrolls within the panel while the title +
+                    # buttons stay anchored to the panel edges.
+                    yield VerticalScroll(id='builder-fields')
                 with Vertical(id='builder-preview-wrap'):
                     yield Static('Equivalent Python', id='builder-preview-title')
-                    yield Static('', id='builder-preview', markup=False)
+                    # Wrap the preview in a VerticalScroll so long
+                    # snippets can scroll inside the panel rather than
+                    # bleeding past the modal's bottom edge.
+                    with VerticalScroll(id='builder-preview-scroll'):
+                        yield Static('', id='builder-preview', markup=False)
             with Horizontal(id='builder-buttons'):
                 if self._top_level:
                     yield Button('Back', id='cancel')
@@ -171,12 +186,17 @@ class ModelBuilderScreen(ModalScreen[Optional[BaseDataClassModel]]):
 
         hints = self._resolve_hints()
 
+        needle = self._field_filter.strip().lower()
         for f in fields(self._model_class):
             if f.name.startswith('_'):
                 continue
             ann = hints.get(f.name, Any)
             kind = classify_field(ann)
+            # Track the kind for every field so collect/snapshot/preview
+            # work correctly even when a field is filtered out of view.
             self._field_kinds[f.name] = kind
+            if needle and needle not in f.name.lower():
+                continue
             await self._mount_field_row(container, f.name, kind)
 
     async def _mount_field_row(
@@ -304,7 +324,19 @@ class ModelBuilderScreen(ModalScreen[Optional[BaseDataClassModel]]):
             self._remove_list_row(field_name, int(idx))
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Re-render the live code preview as the user edits inputs."""
+        """Re-render the live code preview as the user edits inputs.
+
+        The field-name filter is handled separately: snapshot the
+        currently-visible primitive inputs into ``self._values`` so they
+        survive the form rebuild, update the filter, then re-populate
+        with only matching fields shown.
+        """
+        if event.input.id == 'builder-filter':
+            self._snapshot_primitive_inputs()
+            self._field_filter = event.value
+            self.call_after_refresh(self._populate_fields)
+            self.call_after_refresh(self._render_preview)
+            return
         self._render_preview()
 
     # -- Nested model handling ------------------------------------------
@@ -441,9 +473,15 @@ class ModelBuilderScreen(ModalScreen[Optional[BaseDataClassModel]]):
         for field_name, kind in self._field_kinds.items():
             kind_name = kind['kind']
             if kind_name == 'primitive':
+                # Fall back to the snapshot in ``self._values`` when the
+                # widget isn't mounted - happens when the user filtered
+                # the field out of view after entering a value.
                 try:
                     widget_value = self.query_one(f'#p-{field_name}', Input).value
                 except Exception:
+                    snapshot = self._values.get(field_name)
+                    if snapshot is not None:
+                        kwargs[field_name] = snapshot
                     continue
                 try:
                     value = _coerce_primitive(widget_value, kind.get('type'))
@@ -457,6 +495,9 @@ class ModelBuilderScreen(ModalScreen[Optional[BaseDataClassModel]]):
                 try:
                     widget_value = self.query_one(f'#p-{field_name}', Input).value
                 except Exception:
+                    snapshot = self._values.get(field_name)
+                    if snapshot:
+                        kwargs[field_name] = list(snapshot)
                     continue
                 try:
                     value = _split_csv(widget_value, kind.get('item'))

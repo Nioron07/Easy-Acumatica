@@ -168,8 +168,9 @@ class TestCachingBasic:
         assert len(cache_files) == 1, "One cache file should be created"
         with open(cache_files[0], 'rb') as f:
             cache_data = pickle.load(f)
-        assert cache_data['version'] == '1.1'
+        assert cache_data['version'] == '1.2'
         assert 'model_hashes' in cache_data
+        assert 'ad_hoc_schemas' in cache_data
         client.close()
 
 

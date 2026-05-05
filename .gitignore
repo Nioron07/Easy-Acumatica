@@ -38,3 +38,4 @@ src/easy_acumatica/odata.pyi
 src/easy_acumatica/batch.pyi
 src/easy_acumatica/stubs
 .claude/settings.local.json
+main.py

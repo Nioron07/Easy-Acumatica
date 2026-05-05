@@ -66,10 +66,18 @@ class ModelFactory:
             if name not in self._primitive_wrappers:
                 self._get_or_build_model(name)
 
+        # Annotations on dynamically-built dataclasses can reference
+        # ``Optional`` / ``List`` / ``Dict`` / ``Any`` etc. - and because
+        # this module uses ``from __future__ import annotations`` they're
+        # stored as strings, so ``get_type_hints`` needs the ``typing``
+        # symbols in its namespace to resolve them.
+        import typing as _typing
+        ns = {**vars(_typing), **self._models}
+
         # Iterate over a copy of the values to prevent RuntimeError
         for model in list(self._models.values()):
             try:
-                resolved_annotations = get_type_hints(model, globalns=self._models, localns=self._models)
+                resolved_annotations = get_type_hints(model, globalns=ns, localns=ns)
                 model.__annotations__ = resolved_annotations
             except Exception as e:
                 logger.warning(f"Could not resolve type hints for model {model.__name__}: {e}")
@@ -317,3 +325,268 @@ class ModelFactory:
             return base_type, default_value
         else:
             return Optional[base_type], default_value
+
+
+# ---------------------------------------------------------------------------
+# Custom-field discovery + augmentation
+# ---------------------------------------------------------------------------
+#
+# After the OpenAPI schema is parsed into dataclasses we walk the per-service
+# ``$adHocSchema`` response to discover custom-field metadata that doesn't
+# appear in the OpenAPI surface. The walker yields tuples of
+# ``(model_name, view_name, field_name, custom_type)``; the augmenter rebuilds
+# the affected dataclasses with those fields included so users can set them
+# via the constructor (``client.models.SalesOrder(AttributeColor=...)``)
+# and the TUI's ``ModelBuilderScreen`` picks them up automatically.
+
+_CUSTOM_TYPE_TO_PYTHON: Dict[str, Type] = {
+    "CustomStringField": str,
+    "CustomGuidField": str,
+    "CustomIntField": int,
+    "CustomShortField": int,
+    "CustomLongField": int,
+    "CustomByteField": int,
+    "CustomDecimalField": float,
+    "CustomDoubleField": float,
+    "CustomBooleanField": bool,
+    "CustomDateTimeField": datetime.datetime,
+    "CustomDateField": datetime.datetime,
+}
+
+
+def _python_type_for_custom_field(custom_type: str) -> Type:
+    return _CUSTOM_TYPE_TO_PYTHON.get(custom_type, Any)
+
+
+def _resolve_dataclass_name(annotation: Any) -> Optional[str]:
+    """Return the underlying dataclass name from an annotation.
+
+    Handles ``Optional[Foo]``, ``List[Foo]``, ``ForwardRef("Foo")``, and
+    bare classes. Returns ``None`` for primitives or anything we can't
+    map to a dataclass.
+    """
+    from typing import get_args, get_origin, Union
+    from dataclasses import is_dataclass
+
+    if isinstance(annotation, ForwardRef):
+        return annotation.__forward_arg__.strip("'\"")
+
+    origin = get_origin(annotation)
+    if origin is Union:
+        non_none = [a for a in get_args(annotation) if a is not type(None)]
+        if len(non_none) == 1:
+            return _resolve_dataclass_name(non_none[0])
+        return None
+
+    if origin is list:
+        args = get_args(annotation)
+        if args:
+            return _resolve_dataclass_name(args[0])
+        return None
+
+    if isinstance(annotation, type) and is_dataclass(annotation):
+        return annotation.__name__
+
+    return None
+
+
+def walk_custom_fields(
+    ad_hoc_schema: Dict[str, Any],
+    model_classes: Dict[str, Type],
+    entity_name: str,
+) -> List[Tuple[str, str, str, str]]:
+    """Walk an ``$adHocSchema`` response and yield custom-field tuples.
+
+    Each tuple is ``(target_model_name, view_name, field_name,
+    custom_type)``. Nested entities are followed via the OpenAPI-derived
+    annotations on the model classes, so a custom block on
+    ``Details[0].custom.Transactions`` correctly attaches to the
+    ``SalesOrderDetail`` model rather than ``SalesOrder``.
+    """
+    results: List[Tuple[str, str, str, str]] = []
+
+    def visit(node: Any, current_model_name: str) -> None:
+        if not isinstance(node, dict):
+            return
+
+        custom = node.get("custom")
+        if isinstance(custom, dict):
+            for view_name, view_fields in custom.items():
+                if not isinstance(view_fields, dict):
+                    continue
+                for field_name, meta in view_fields.items():
+                    if isinstance(meta, dict) and "type" in meta:
+                        results.append((
+                            current_model_name,
+                            view_name,
+                            field_name,
+                            meta["type"],
+                        ))
+
+        model = model_classes.get(current_model_name)
+        if model is None:
+            return
+        annotations = getattr(model, "__annotations__", {}) or {}
+
+        for key, value in node.items():
+            if key == "custom":
+                continue
+            ann = annotations.get(key)
+            if ann is None:
+                continue
+            child_name = _resolve_dataclass_name(ann)
+            if child_name is None:
+                continue
+
+            if isinstance(value, list):
+                for item in value:
+                    visit(item, child_name)
+            elif isinstance(value, dict):
+                visit(value, child_name)
+
+    visit(ad_hoc_schema, entity_name)
+    return results
+
+
+def augment_model_with_custom_fields(
+    model_class: Type,
+    custom_fields: List[Tuple[str, str, str]],
+) -> Type:
+    """Return a new dataclass that adds custom fields to ``model_class``.
+
+    Each entry is ``(view, field_name, custom_type)``. The new dataclass
+    keeps every original field and metadata, plus typed Optional fields
+    for each custom entry, and exposes ``__custom_field_meta__`` so
+    ``BaseDataClassModel.to_acumatica_payload`` knows how to route them.
+    """
+    from dataclasses import MISSING, fields as dc_fields, make_dataclass
+
+    if not custom_fields:
+        return model_class
+
+    base_fields: List[Tuple[str, Any, Any]] = []
+    for f in dc_fields(model_class):
+        if f.default is not MISSING:
+            base_fields.append((f.name, f.type, field(default=f.default)))
+        elif f.default_factory is not MISSING:
+            base_fields.append((f.name, f.type, field(default_factory=f.default_factory)))
+        else:
+            base_fields.append((f.name, f.type, field()))
+
+    # De-duplicate by field name (later discovery may revisit the same view).
+    seen_names = {f.name for f in dc_fields(model_class)}
+    new_meta = dict(getattr(model_class, "__custom_field_meta__", {}) or {})
+    new_field_specs: List[Tuple[str, Any, Any]] = []
+
+    for view, fname, ctype in custom_fields:
+        if fname in seen_names:
+            # Already a field on this model - don't shadow it. Custom-field
+            # metadata still wins so it serializes to the custom block.
+            new_meta[fname] = (view, ctype)
+            continue
+        # Acumatica exposes related-field expansions like
+        # ``ResponseActivityNoteID!subject`` in the $adHocSchema custom
+        # blocks. Those aren't valid Python identifiers (``!``) so they
+        # can't become dataclass fields. Skip them - the user can still
+        # set them through ``model.set_custom(view, fname, value)`` if
+        # ever needed, since that path doesn't go through the dataclass.
+        if not fname.isidentifier():
+            continue
+        py_type = _python_type_for_custom_field(ctype)
+        new_field_specs.append((fname, Optional[py_type], field(default=None)))
+        new_meta[fname] = (view, ctype)
+        seen_names.add(fname)
+
+    namespace = {
+        k: v for k, v in model_class.__dict__.items()
+        if k not in (
+            "__dict__", "__weakref__", "__dataclass_fields__",
+            "__dataclass_params__", "__init__", "__repr__", "__eq__",
+            "__hash__", "__match_args__",
+        )
+    }
+    namespace["__custom_field_meta__"] = new_meta
+
+    new_cls = make_dataclass(
+        model_class.__name__,
+        fields=base_fields + new_field_specs,
+        bases=model_class.__bases__,
+        namespace=namespace,
+        frozen=False,
+    )
+    new_cls.__module__ = model_class.__module__
+    new_cls.__doc__ = model_class.__doc__
+    return new_cls
+
+
+def apply_custom_field_discoveries(
+    model_classes: Dict[str, Type],
+    discoveries: List[Tuple[str, str, str, str]],
+) -> Dict[str, Type]:
+    """Apply a flat list of discoveries to a model registry, in place.
+
+    Groups by model name, augments each affected class once, replaces the
+    class in ``model_classes``. Callers should invoke
+    :func:`re_link_dataclass_annotations` afterwards so parent classes
+    pick up the augmented child classes via their nested annotations.
+    """
+    by_model: Dict[str, List[Tuple[str, str, str]]] = {}
+    for model_name, view, fname, ctype in discoveries:
+        by_model.setdefault(model_name, []).append((view, fname, ctype))
+
+    for model_name, entries in by_model.items():
+        if model_name not in model_classes:
+            continue
+        new_cls = augment_model_with_custom_fields(model_classes[model_name], entries)
+        model_classes[model_name] = new_cls
+
+    return model_classes
+
+
+def _substitute_dataclass_refs(annotation: Any, registry: Dict[str, Type]) -> Any:
+    """Walk a typing annotation, replace any embedded dataclass classes
+    with the current registry entry for that dataclass name.
+
+    Used after :func:`apply_custom_field_discoveries` has replaced classes
+    in the registry: parent classes' resolved annotations still reference
+    the *old* class objects, so the new (augmented) child wouldn't be
+    used during construction or serialization without this fix-up.
+    """
+    from dataclasses import is_dataclass
+    from typing import Union, get_args, get_origin
+
+    origin = get_origin(annotation)
+
+    if origin is Union:
+        args = tuple(_substitute_dataclass_refs(a, registry) for a in get_args(annotation))
+        return Union[args]
+
+    if origin is list:
+        args = get_args(annotation)
+        if args:
+            return List[_substitute_dataclass_refs(args[0], registry)]
+        return list
+
+    if isinstance(annotation, type) and is_dataclass(annotation):
+        return registry.get(annotation.__name__, annotation)
+
+    return annotation
+
+
+def re_link_dataclass_annotations(model_classes: Dict[str, Type]) -> None:
+    """Re-link nested dataclass references to the current registry version.
+
+    After ``apply_custom_field_discoveries`` swaps out a child class
+    (e.g. ``SalesOrderDetail``) for an augmented copy, the parent's
+    already-resolved annotation still points at the *old* class object.
+    This walker rewrites every class's ``__annotations__`` so each
+    dataclass reference resolves to ``model_classes[name]``.
+    """
+    for cls in list(model_classes.values()):
+        annotations = getattr(cls, "__annotations__", None)
+        if not annotations:
+            continue
+        cls.__annotations__ = {
+            fname: _substitute_dataclass_refs(ann, model_classes)
+            for fname, ann in annotations.items()
+        }

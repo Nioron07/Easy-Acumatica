@@ -1409,6 +1409,60 @@ async def test_model_builder_preserves_inputs_when_removing_list_row():
 
 
 @pytest.mark.asyncio
+async def test_model_builder_filter_narrows_visible_fields():
+    """Typing into the filter input should hide field rows whose name
+    doesn't contain the substring (case-insensitive). Snapshot values
+    must survive filtering so the live preview keeps them."""
+    from dataclasses import dataclass
+    from typing import Optional
+    from easy_acumatica.core import BaseDataClassModel
+    from easy_acumatica.tui.model_builder import ModelBuilderScreen
+
+    @dataclass
+    class Order(BaseDataClassModel):
+        OrderType: Optional[str] = None
+        OrderNbr: Optional[str] = None
+        CustomerID: Optional[str] = None
+
+    app = _make_app(services=['Account'], models=[])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _goto_main_screen(pilot, app)
+        app.push_screen(ModelBuilderScreen(Order))
+        await _wait_for_screen(pilot, app, ModelBuilderScreen, probe='#p-OrderType')
+
+        from textual.widgets import Input
+        screen = app.screen
+
+        # Set a value, then filter it out of view. Snapshot should
+        # carry the value through to the preview.
+        screen.query_one('#p-OrderType', Input).value = 'SO'
+        await pilot.pause()
+        assert "OrderType='SO'" in screen._last_preview
+
+        # Filter to fields containing "Customer" - hides OrderType + OrderNbr.
+        screen.query_one('#builder-filter', Input).value = 'customer'
+        await pilot.pause()
+        await pilot.pause()  # _populate_fields runs after refresh
+
+        # OrderType widget is gone from the DOM
+        with pytest.raises(Exception):
+            screen.query_one('#p-OrderType', Input)
+        # CustomerID is still mounted
+        assert screen.query_one('#p-CustomerID', Input) is not None
+
+        # The OrderType value snapshot should still be in the preview.
+        screen._render_preview()
+        await pilot.pause()
+        assert "OrderType='SO'" in screen._last_preview
+
+        # Clear the filter - everything comes back.
+        screen.query_one('#builder-filter', Input).value = ''
+        await pilot.pause()
+        await pilot.pause()
+        assert screen.query_one('#p-OrderType', Input).value == 'SO'
+
+
+@pytest.mark.asyncio
 async def test_model_builder_live_preview_updates_on_input():
     """Editing a primitive field updates the live code preview pane."""
     from dataclasses import dataclass

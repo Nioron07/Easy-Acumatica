@@ -467,6 +467,10 @@ class AcumaticaClient:
         self._schema_cache: Dict[str, Any] = {}
         self._model_classes: Dict[str, Type[BaseDataClassModel]] = {}
         self._service_instances: Dict[str, BaseService] = {}
+        # Per-service ``$adHocSchema`` responses keyed by entity tag.
+        # Populated by ``_discover_custom_fields``; persisted alongside
+        # the differential cache so repeated connects don't re-fetch.
+        self._ad_hoc_schemas: Dict[str, Dict[str, Any]] = {}
         
         # Performance metrics
         self._startup_time: Optional[float] = None
@@ -668,6 +672,7 @@ class AcumaticaClient:
             schema = self._fetch_schema(self.endpoint_name, self.endpoint_version)
             self._build_dynamic_models(schema)
             self._build_dynamic_services(schema)
+            self._discover_custom_fields()
             return
 
         cache_key = self._get_cache_key()
@@ -692,6 +697,7 @@ class AcumaticaClient:
             self._build_dynamic_services(current_schema)
             if current_inquiries_xml:
                 self._build_inquiries_service(current_inquiries_xml)
+            self._discover_custom_fields()
             self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
             self._cache_misses += 1
             return
@@ -705,20 +711,37 @@ class AcumaticaClient:
                 self._build_dynamic_services(current_schema)
                 if current_inquiries_xml:
                     self._build_inquiries_service(current_inquiries_xml)
+                self._discover_custom_fields()
                 self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
                 self._cache_misses += 1
                 return
 
-            # Perform differential update
+            # Perform differential update. If the OpenAPI schema hash
+            # is unchanged we can also reuse the cached $adHocSchema
+            # responses (custom fields don't move on their own without
+            # a customization redeploy, which usually bumps the schema
+            # too). Otherwise fall through to a fresh sweep.
             self._perform_differential_update(cached_data, current_schema, current_inquiries_xml)
+            current_schema_hash = self._calculate_schema_hash(current_schema)
+            cached_schema_hash = cached_data.get('schema_hash')
+            cached_ad_hoc = cached_data.get('ad_hoc_schemas') if isinstance(cached_data, dict) else None
+            if (
+                cached_schema_hash == current_schema_hash
+                and isinstance(cached_ad_hoc, dict)
+                and cached_ad_hoc
+            ):
+                self._discover_custom_fields(cached_schemas=cached_ad_hoc)
+            else:
+                self._discover_custom_fields()
             self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
-            
+
         except Exception as e:
             # Differential caching failed, rebuild from scratch
             self._build_dynamic_models(current_schema)
             self._build_dynamic_services(current_schema)
             if current_inquiries_xml:
                 self._build_inquiries_service(current_inquiries_xml)
+            self._discover_custom_fields()
             self._save_differential_cache(cache_file, current_schema, current_inquiries_xml)
             self._cache_misses += 1
 
@@ -731,7 +754,7 @@ class AcumaticaClient:
             inquiry_hashes = self._calculate_inquiry_hashes(inquiries_xml_path) if inquiries_xml_path else {}
             
             cache_data = {
-                'version': '1.1',  # Cache format version (updated for inquiries)
+                'version': '1.2',  # Cache format version (added ad_hoc_schemas)
                 'timestamp': time.time(),
                 'schema_hash': self._calculate_schema_hash(schema),
                 'inquiries_hash': self._calculate_inquiries_xml_hash(inquiries_xml_path) if inquiries_xml_path else None,
@@ -741,6 +764,11 @@ class AcumaticaClient:
                 'models': self._model_classes.copy(),
                 'service_definitions': self._extract_service_definitions(schema),
                 'inquiry_definitions': self._extract_inquiry_definitions(inquiries_xml_path) if inquiries_xml_path else {},
+                # Per-tag ``$adHocSchema`` responses captured during the
+                # last custom-field discovery sweep. Reused on the next
+                # connect when the OpenAPI schema hash is unchanged so
+                # we avoid N HTTP round-trips on every startup.
+                'ad_hoc_schemas': dict(self._ad_hoc_schemas),
                 'endpoint_info': {
                     'name': self.endpoint_name,
                     'version': self.endpoint_version,
@@ -785,7 +813,7 @@ class AcumaticaClient:
             except (OSError, pickle.UnpicklingError, EOFError, AttributeError):
                 return None
 
-            if cached_data.get('version') not in ('1.0', '1.1'):
+            if cached_data.get('version') not in ('1.0', '1.1', '1.2'):
                 return None
 
             endpoint_info = cached_data.get('endpoint_info', {})
@@ -1654,6 +1682,163 @@ class AcumaticaClient:
             
         except Exception as e:
             raise AcumaticaError(f"Failed to build dynamic services: {e}")
+
+    # --- Custom field discovery ($adHocSchema) ---------------------------
+    #
+    # The OpenAPI schema does not surface custom (Usr*/Attribute*) fields,
+    # so after building the base models we ask each entity for its
+    # $adHocSchema and walk the response. The walker yields tuples of
+    # (target_model_name, view, field, custom_type) which we apply to the
+    # model registry. After augmentation, parent classes' nested
+    # annotations are re-linked to the swapped-in child classes.
+
+    def _ad_hoc_schema_url(self, entity_tag: str) -> str:
+        """URL of the per-entity $adHocSchema endpoint."""
+        version = self.endpoints.get(self.endpoint_name, {}).get('version', self.endpoint_version)
+        return (
+            f"{self.base_url}/entity/{self.endpoint_name}/{version}/"
+            f"{entity_tag}/$adHocSchema"
+        )
+
+    def _fetch_one_ad_hoc_schema(self, entity_tag: str) -> Optional[Dict[str, Any]]:
+        """Fetch and JSON-decode one entity's $adHocSchema. Returns None
+        on per-entity failure (404/403/decode error) so a single bad
+        endpoint doesn't poison the whole discovery sweep."""
+        try:
+            resp = self._request("get", self._ad_hoc_schema_url(entity_tag))
+            if not resp.ok:
+                logger.debug(
+                    f"$adHocSchema for {entity_tag} returned {resp.status_code}"
+                )
+                return None
+            return resp.json()
+        except Exception as e:
+            logger.debug(f"$adHocSchema fetch failed for {entity_tag}: {e}")
+            return None
+
+    def _discover_custom_fields(
+        self,
+        max_workers: int = 5,
+        cached_schemas: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> None:
+        """Augment every dynamic model with its discovered custom fields.
+
+        Iterates every service the OpenAPI schema produced, fetches
+        ``$adHocSchema`` in parallel (bounded by ``max_workers``), walks
+        each response with :func:`walk_custom_fields`, and applies the
+        resulting augmentations to ``self._model_classes``. Re-links
+        nested annotations and updates ``self.models`` so callers see the
+        augmented classes everywhere.
+
+        When ``cached_schemas`` is provided (tag -> $adHocSchema response),
+        the network sweep is skipped entirely - we walk the cached
+        responses and augment from them. The differential cache passes
+        this in whenever the OpenAPI schema hash hasn't changed, which
+        avoids re-fetching N schemas on every connect.
+
+        Per-entity failures are logged and skipped - a tenant with an
+        endpoint that 500s on $adHocSchema still gets the rest of its
+        models augmented.
+        """
+        from .model_factory import (
+            apply_custom_field_discoveries,
+            re_link_dataclass_annotations,
+            walk_custom_fields,
+        )
+
+        if not self._service_instances:
+            return
+
+        # Map service-tag -> dataclass name. In real Acumatica the tag
+        # and the schema name match (``SalesOrder`` <-> ``SalesOrder``)
+        # but in mocks and some custom endpoints they can differ
+        # (``Test`` -> ``TestModel``). Try a few common variations and
+        # skip services we can't resolve.
+        targets: Dict[str, str] = {}  # tag -> dataclass_name
+        for tag, svc in self._service_instances.items():
+            if tag == "Inquiries":
+                continue
+            entity_name = getattr(svc, "entity_name", None)
+            if not entity_name:
+                continue
+            for candidate in (entity_name, f"{entity_name}Model", entity_name.rstrip("s")):
+                if candidate in self._model_classes:
+                    targets[tag] = candidate
+                    break
+
+        if not targets:
+            return
+
+        # Parallel fetch via the existing batch infrastructure. Each
+        # worker shares the client's auth state through the same
+        # thread-local override BatchCall already uses.
+        from .batch import BatchCall, CallableWrapper
+
+        tags = list(targets.keys())
+
+        if cached_schemas is not None:
+            # Cache hit: no network round-trip. Use only the entries
+            # whose tag is still in the current target set so dropped
+            # services don't sneak in.
+            self._ad_hoc_schemas = {t: s for t, s in cached_schemas.items() if t in targets}
+            schemas_by_tag = self._ad_hoc_schemas
+            logger.debug(
+                f"Custom-field discovery: using cached $adHocSchema for "
+                f"{len(schemas_by_tag)} entity tag(s)"
+            )
+        else:
+            calls = [
+                CallableWrapper(self._fetch_one_ad_hoc_schema, tag)
+                for tag in tags
+            ]
+            if not calls:
+                return
+
+            logger.info(
+                f"Discovering custom fields across {len(calls)} entity schemas"
+                f" (max_workers={max_workers})..."
+            )
+            results = BatchCall(
+                *calls,
+                max_concurrent=max_workers,
+                return_exceptions=True,
+            ).execute()
+            schemas_by_tag = {
+                tag: ad_hoc
+                for tag, ad_hoc in zip(tags, results)
+                if isinstance(ad_hoc, dict)
+            }
+            # Cache for the next save_differential_cache call.
+            self._ad_hoc_schemas = schemas_by_tag
+
+        # Walk every response, accumulate discoveries against the
+        # resolved dataclass name for each tag.
+        all_discoveries: List[Tuple[str, str, str, str]] = []
+        for tag, ad_hoc in schemas_by_tag.items():
+            dataclass_name = targets.get(tag)
+            if not dataclass_name:
+                continue
+            all_discoveries.extend(
+                walk_custom_fields(ad_hoc, self._model_classes, dataclass_name)
+            )
+
+        if not all_discoveries:
+            logger.info("Custom-field discovery: no fields found.")
+            return
+
+        apply_custom_field_discoveries(self._model_classes, all_discoveries)
+        re_link_dataclass_annotations(self._model_classes)
+
+        # Mirror the augmented classes back onto client.models so users
+        # who reference client.models.SalesOrder see the augmented copy.
+        for model_name, cls in self._model_classes.items():
+            setattr(self.models, model_name, cls)
+
+        logger.info(
+            f"Custom-field discovery: applied {len(all_discoveries)} field(s)"
+            f" across {len({d[0] for d in all_discoveries})} model(s)."
+        )
+
     def _add_batch_support_to_service(self, service_instance) -> None:
         """
         Add batch calling support to all public methods of a service instance.

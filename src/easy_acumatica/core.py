@@ -20,11 +20,32 @@ class BaseDataClassModel:
     """
     A base for all Acumatica data models, providing a method to
     convert a dataclass into the required API payload format.
+
+    Custom fields (Usr* + Attribute* fields discovered via
+    ``$adHocSchema``) live alongside regular fields on the dataclass but
+    serialize to a separate ``custom`` block in the API payload. The
+    metadata that drives this routing is stored at the class level in
+    ``__custom_field_meta__``: ``{field_name: (view_name, custom_type)}``.
+    Subclasses set this dict during model factory augmentation.
     """
+
+    # Class-level mapping of dataclass-field-name -> (view, custom_type).
+    # ``ModelFactory`` augments this when it discovers custom fields via
+    # ``$adHocSchema`` so ``to_acumatica_payload`` knows to route those
+    # fields into ``payload["custom"]`` with the correct envelope.
+    __custom_field_meta__: Dict[str, "tuple[str, str]"] = {}
+
     def to_acumatica_payload(self) -> Dict[str, Any]:
         """
         Converts the dataclass instance into the JSON format required
         by the Acumatica API.
+
+        Regular fields get the standard ``{"value": ...}`` wrapping;
+        nested ``BaseDataClassModel`` instances are recursed; custom
+        fields registered in ``__custom_field_meta__`` are emitted under
+        ``payload["custom"][view][field] = {"type": ctype, "value": v}``.
+        Ad-hoc per-instance custom fields (added via ``set_custom``) are
+        merged into the same block.
         """
         if not is_dataclass(self):
             raise AcumaticaValidationError(
@@ -32,10 +53,23 @@ class BaseDataClassModel:
                 suggestions=["Ensure this method is called on a dataclass model instance"]
             )
 
-        payload = {}
+        payload: Dict[str, Any] = {}
+        custom_block: Dict[str, Dict[str, Any]] = {}
+        custom_meta = getattr(type(self), "__custom_field_meta__", {}) or {}
+
         for f in fields(self):
             value = getattr(self, f.name)
             if value is None:
+                continue
+
+            # Discovered custom fields route to the ``custom`` block, not
+            # to the regular property slot.
+            if f.name in custom_meta:
+                view, ctype = custom_meta[f.name]
+                custom_block.setdefault(view, {})[f.name] = {
+                    "type": ctype,
+                    "value": value,
+                }
                 continue
 
             if isinstance(value, list):
@@ -50,11 +84,68 @@ class BaseDataClassModel:
             else:
                 payload[f.name] = {"value": value}
 
+        # Merge in any ad-hoc set_custom() calls.
+        ad_hoc = getattr(self, "_set_custom_data", None)
+        if ad_hoc:
+            for view, fields_dict in ad_hoc.items():
+                for fname, envelope in fields_dict.items():
+                    custom_block.setdefault(view, {})[fname] = envelope
+
+        if custom_block:
+            payload["custom"] = custom_block
+
         return payload
+
+    def set_custom(
+        self,
+        view: str,
+        field_name: str,
+        value: Any,
+        custom_type: Optional[str] = None,
+    ) -> None:
+        """Set a custom field that wasn't discovered via ``$adHocSchema``.
+
+        Useful for one-off Usr* fields that weren't mapped into the
+        endpoint definition (and therefore won't show up in
+        ``__custom_field_meta__``). Inferred ``custom_type`` from the
+        Python type when not given.
+
+        Args:
+            view: Acumatica view name (e.g. ``"Document"``).
+            field_name: API field name as it appears in the ``custom``
+                block (e.g. ``"AttributeColor"`` or ``"UsrFooBar"``).
+            value: Field value (str/int/float/bool/datetime/None).
+            custom_type: Override the auto-inferred wrapper type. One of
+                ``CustomStringField``, ``CustomIntField``,
+                ``CustomShortField``, ``CustomDecimalField``,
+                ``CustomDoubleField``, ``CustomBooleanField``,
+                ``CustomDateTimeField``, ``CustomGuidField``.
+        """
+        if custom_type is None:
+            custom_type = _infer_custom_type(value)
+        envelope = {"type": custom_type, "value": value}
+        if not hasattr(self, "_set_custom_data") or self._set_custom_data is None:
+            self._set_custom_data = {}
+        self._set_custom_data.setdefault(view, {})[field_name] = envelope
 
     def build(self) -> Dict[str, Any]:
         """Alias for to_acumatica_payload for backward compatibility."""
         return self.to_acumatica_payload()
+
+
+# Map a Python value to Acumatica's CustomXxxField wrapper name.
+def _infer_custom_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "CustomBooleanField"
+    if isinstance(value, int):
+        return "CustomIntField"
+    if isinstance(value, float):
+        return "CustomDecimalField"
+    # ``datetime`` would arrive here too; using string check avoids
+    # the runtime import in this hot path.
+    if value is not None and value.__class__.__name__ in ("datetime", "date"):
+        return "CustomDateTimeField"
+    return "CustomStringField"
 
 
 class BatchMethodWrapper:

@@ -309,17 +309,29 @@ def invoke_action():
 
 @app.route(f'{BASE_ENTITY_PATH}/$adHocSchema', methods=['GET'])
 def get_ad_hoc_schema():
-    """Handles the get_ad_hoc_schema method."""
+    """Handles the get_ad_hoc_schema method.
+
+    Returns a hybrid response: the old top-level CustomXxxField keys that
+    the legacy ``test_get_ad_hoc_schema`` test asserts on, plus a real
+    ``custom`` block (the Acumatica-shaped envelope used by the runtime
+    custom-field discovery sweep).
+    """
     base_schema = {
         "CustomStringField": {"type": "String", "viewName": "UsrCustomField"},
-        "CustomNumberField": {"type": "Decimal", "viewName": "UsrCustomNumber"}
+        "CustomNumberField": {"type": "Decimal", "viewName": "UsrCustomNumber"},
+        "custom": {
+            "Document": {
+                "AttributeColor": {"type": "CustomStringField", "value": None},
+                "AttributeSize": {"type": "CustomStringField", "value": None},
+                "UsrPriority": {"type": "CustomIntField", "value": None},
+            },
+        },
     }
-    
-    # Add different fields based on schema version for testing
+
     if _schema_version == "v2":
         base_schema["CustomDateField"] = {"type": "DateTime", "viewName": "UsrCustomDate"}
         base_schema["CustomBoolField"] = {"type": "Boolean", "viewName": "UsrCustomBool"}
-    
+
     return jsonify(base_schema), 200
 
 @app.route(f'{BASE_ENTITY_PATH}/<entity_id>/files/<filename>', methods=['PUT'])
